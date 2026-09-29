@@ -337,7 +337,7 @@ function renderPlayerPage(param) {
     '<div class="grid-2"><div id="pp-evo" style="height:300px"></div><div id="pp-roll" style="height:300px"></div></div></div>';
   html += '<div class="card"><div class="card-header">All competitions this season <span class="card-sub" id="pp-all-sub">Club, cups and national team, from every store the site follows.</span></div><div id="pp-all"></div></div>';
   html += '<div class="card"><div class="card-header">Match log <span class="card-sub" id="pp-log-sub">Loading…</span></div><div id="pp-log"></div></div>';
-  html += '<div class="card"><div class="muted"><a href="#/player/' + esc(p.player_id) + '">Career, season by season →</a> &nbsp;·&nbsp; <a href="#/compare/players/' + esc(c.slug) + ':' + esc(p.player_id) + '">Compare with another player →</a> &nbsp;·&nbsp; <a href="#/leaders">Global leaders →</a></div></div>';
+  html += '<div class="card"><div class="muted"><a href="#/player/' + esc(p.player_id) + '">Career, season by season →</a> &nbsp;·&nbsp; <a href="#/compare/players/' + esc(c.slug) + ':' + esc(p.player_id) + '">Compare with another player →</a> &nbsp;·&nbsp; <a href="#/leaders">Global leaders →</a> &nbsp;·&nbsp; <a href="#/lab/' + esc(c.slug) + '/' + esc(p.position === 'G' ? 'G' : (p.position || 'M')) + '">Compare in the Player lab →</a></div></div>';
   pane.innerHTML = html;
 
   FH.loadSite('season_index.json').then(idx => {
@@ -416,145 +416,10 @@ function renderPlayerPage(param) {
 // ── match page ─────────────────────────────────────────────────────────────
 
 // Team-stat sheet rows shown on a match page, in order, with labels.
-const SHEET_ROWS = [
-  ['ballPossession', 'Possession', '%'], ['expectedGoals', 'Expected goals', '2'], ['expectedGoalsOnTarget', 'xG on target', '2'],
-  ['totalShotsOnGoal', 'Shots'], ['shotsOnGoal', 'On target'], ['totalShotsInsideBox', 'Inside the box'], ['blockedScoringAttempt', 'Blocked'],
-  ['bigChanceCreated', 'Big chances'], ['bigChanceMissed', 'Big chances missed'], ['touchesInOppBox', 'Touches in the box'],
-  ['finalThirdEntries', 'Final-third entries'], ['cornerKicks', 'Corners'], ['offsides', 'Offsides'],
-  ['passes', 'Passes'], ['accuratePasses', 'Accurate passes'], ['accurateLongBalls', 'Long balls', 'ratio'], ['accurateCross', 'Crosses', 'ratio'],
-  ['duelWonPercent', 'Duels won', '%'], ['groundDuelsPercentage', 'Ground duels', 'ratio'], ['aerialDuelsPercentage', 'Aerial duels', 'ratio'], ['dribblesPercentage', 'Dribbles', 'ratio'],
-  ['totalTackle', 'Tackles'], ['interceptionWon', 'Interceptions'], ['ballRecovery', 'Recoveries'], ['totalClearance', 'Clearances'],
-  ['fouls', 'Fouls', 'lower'], ['yellowCards', 'Yellow cards', 'lower'], ['redCards', 'Red cards', 'lower'],
-  ['goalkeeperSaves', 'Saves'], ['goalsPrevented', 'Goals prevented', '2'], ['kilometersCovered', 'Distance (km)', '1'], ['numberOfSprints', 'Sprints'], ['avgRating', 'Average rating', '2']
-];
-
-function sheetRow(key, label, fmt, sheet) {
-  const h = sheet.home || {}, a = sheet.away || {};
-  if (h[key] === undefined && a[key] === undefined) return '';
-  const hv = h[key] === undefined ? 0 : h[key], av = a[key] === undefined ? 0 : a[key];
-  const total = Math.abs(hv) + Math.abs(av) || 1;
-  const hw = Math.abs(hv) / total * 100, aw = Math.abs(av) / total * 100;
-  const text = v => fmt === '%' ? Math.round(v) + '%' : fmt === '2' ? Number(v).toFixed(2) : fmt === '1' ? Number(v).toFixed(1) : String(v);
-  const ratio = fmt === 'ratio';
-  const ht = ratio ? hv + '/' + (h[key + '_total'] || '?') : text(hv), at = ratio ? av + '/' + (a[key + '_total'] || '?') : text(av);
-  const better = fmt === 'lower' ? (hv < av ? 'h' : hv > av ? 'a' : '') : (hv > av ? 'h' : hv < av ? 'a' : '');
-  return '<div class="ts-row"><span class="ts-val' + (better === 'h' ? ' best' : '') + '">' + esc(ht) + '</span>' +
-    '<div class="ts-bars"><div class="ts-bar ts-h"><div style="width:' + hw.toFixed(1) + '%"></div></div><span class="ts-label">' + esc(label) + '</span><div class="ts-bar ts-a"><div style="width:' + aw.toFixed(1) + '%"></div></div></div>' +
-    '<span class="ts-val' + (better === 'a' ? ' best' : '') + '">' + esc(at) + '</span></div>';
-}
-
-function lineupList(side, m) {
-  const list = (m.lineups || {})[side] || [];
-  if (!list.length) return '<div class="muted">No lineup.</div>';
-  const starters = list.filter(e => e.start), subs = list.filter(e => !e.start);
-  const line = e => '<div class="lu-row"><span class="lu-no">' + esc(e.no || '') + '</span><span class="pos-badge pos-' + esc(e.pos || '') + '">' + esc(e.pos || '') + '</span>' +
-    '<span class="lu-name">' + playerLink(e.id, e.n) + (e.cap ? ' <span class="cap">C</span>' : '') + '</span>' +
-    '<span class="lu-stat">' + (e.g ? '⚽'.repeat(Math.min(e.g, 3)) : '') + (e.a ? '<span class="assist">A' + (e.a > 1 ? e.a : '') + '</span>' : '') + '</span>' +
-    '<span class="lu-min">' + (e.min !== undefined ? e.min + "'" : '') + '</span>' +
-    '<span class="lu-rt' + (e.rt >= 7.5 ? ' good' : e.rt < 6.2 ? ' poor' : '') + '">' + (e.rt !== undefined ? num(e.rt, 1) : '') + '</span></div>';
-  const formation = ((m.formation || {})[side]) ? '<span class="chip">' + esc(m.formation[side]) + '</span>' : '';
-  const missing = ((m.missing || {})[side] || []);
-  return '<div class="lu-head">' + formation + '</div>' + starters.map(line).join('') +
-    (subs.length ? '<div class="lu-sub-head">Substitutes</div>' + subs.map(line).join('') : '') +
-    (missing.length ? '<div class="lu-sub-head">Missing</div>' + missing.map(x => '<div class="lu-missing"><span>' + esc(x.n) + '</span><span>' + esc(missingReason(x)) + '</span></div>').join('') : '');
-}
-
-function missingReason(x) {
-  const t = String(x.type || '').toLowerCase();
-  if (t === 'missing' || t === 'injury' || String(x.reason) === '1') return 'injured';
-  if (t === 'doubtful') return 'doubtful';
-  if (String(x.reason) === '3' || t === 'suspended') return 'suspended';
-  return t || '';
-}
-
-function incidentLabel(i) {
-  const type = String(i.incident_type || '').toLowerCase(), cls = String(i.incident_class || '').toLowerCase();
-  if (type === 'goal') return '<span style="color:' + C.green + '">⚽ ' + (cls === 'penalty' ? 'Penalty' : cls.indexOf('own') >= 0 ? 'Own goal' : 'Goal') + '</span>' + (i.assist ? ' <span class="muted-inline">assist ' + esc(i.assist) + '</span>' : '');
-  if (type === 'card') return cls.indexOf('red') >= 0 ? '<span style="color:' + C.red + '">■ ' + (cls === 'yellowred' ? 'Second yellow' : 'Red card') + '</span>' : '<span style="color:' + C.yellow + '">■ Yellow card</span>' + (i.reason ? ' <span class="muted-inline">' + esc(i.reason) + '</span>' : '');
-  if (type === 'substitution') return '⇄ ' + esc(i.player_in || '') + ' <span class="muted-inline">for ' + esc(i.player_out || '') + (i.injury ? ' (injury)' : '') + '</span>';
-  if (type === 'vardecision') return '<span class="muted-inline">VAR: ' + esc(i.incident_class || 'review') + (i.confirmed ? ' confirmed' : ' overturned') + '</span>';
-  return esc(i.incident_type || '');
-}
-
-function renderMatchPage(param) {
-  const c = comp() || {};
-  const pane = document.getElementById('tab-page');
-  const fx = ((D().fixtures || {}).matches || []).find(f => String(f.id) === String(param));
-  loadShard('matches/' + param + '.json').then(m => {
-    if (FH.STATE.page !== 'match' || FH.STATE.param !== param) return;
-    if (!m) {
-      if (fx) { pane.innerHTML = matchHeader(fx, null, c) + '<div class="card"><div class="muted">' + (fx.status === 'finished' ? 'No detailed data for this match yet; it is fetched a few hours after the final whistle.' : 'This match has not been played.') + '</div></div>' + (fx.model ? modelCard(fx) : ''); }
-      else pane.innerHTML = '<div class="error-banner">No match with id ' + esc(param) + '.</div>';
-      return;
-    }
-    let html = matchHeader(fx || m, m, c);
-    if (fx && fx.status !== 'finished' && fx.model) html += modelCard(fx);
-    html += '<div class="grid-2">';
-    html += '<div class="card"><div class="card-header">Team statistics</div><div class="pad" id="mp-sheet">' +
-      (m.team_stats ? '<div class="ts-head"><span>' + esc(m.home) + '</span><span>' + esc(m.away) + '</span></div>' + SHEET_ROWS.map(r => sheetRow(r[0], r[1], r[2], m.team_stats)).join('') : '<div class="muted">No team-stat sheet for this match (fetched in the older format).</div>') + '</div></div>';
-    html += '<div class="card"><div class="card-header">xG race</div><div id="mp-race" style="height:300px"></div>' +
-      '<div class="card-header">Momentum</div><div id="mp-momentum" style="height:220px"></div></div>';
-    html += '</div>';
-    html += '<div class="grid-2"><div class="card"><div class="card-header">' + esc(m.home) + ' shots</div><div id="mp-shots-h" style="height:400px"></div></div>' +
-      '<div class="card"><div class="card-header">' + esc(m.away) + ' shots</div><div id="mp-shots-a" style="height:400px"></div></div></div>';
-    html += '<div class="grid-2"><div class="card"><div class="card-header">' + crest(m.home) + esc(m.home) + '</div><div class="pad">' + lineupList('home', m) + '</div></div>' +
-      '<div class="card"><div class="card-header">' + crest(m.away) + esc(m.away) + '</div><div class="pad">' + lineupList('away', m) + '</div></div></div>';
-    const inc = (m.incidents || []);
-    html += '<div class="card"><div class="card-header">Timeline</div>' + (inc.length ? tableHTML([
-      { label: 'Min', align: 'right', sortable: false }, { label: 'Team', sortable: false }, { label: 'Event', sortable: false }, { label: 'Player', sortable: false }, { label: 'Score', align: 'center', sortable: false }
-    ], inc.map(i => ({ cells: [
-      { v: i.time, html: (i.time || 0) + (i.added_time ? '+' + i.added_time : '') + "'", align: 'right' },
-      { v: i.is_home ? m.home : m.away, html: crest(i.is_home ? m.home : m.away) + esc(i.is_home ? m.home : m.away) },
-      { v: i.incident_type, html: incidentLabel(i) }, { v: i.player_name || '', html: i.player_id ? playerLink(i.player_id, i.player_name) : esc(i.player_name || '') },
-      { v: '', html: i.home_score !== undefined ? i.home_score + ' – ' + i.away_score : '', align: 'center' }
-    ] }))) : '<div class="muted">No incidents.</div>') + '</div>';
-    html += '<div class="card"><div class="card-header">Ratings</div><div id="mp-ratings"></div></div>';
-    pane.innerHTML = html;
-    renderXgRace('mp-race', m.shots || [], m.home, m.away);
-    renderMomentum('mp-momentum', m.momentum || [], m.home, m.away);
-    const shots = (m.shots || []).map(s => Object.assign({}, s, { type: s.shot_type, body: s.body_part, player: s.player_name }));
-    renderShotMap('mp-shots-h', shots.filter(s => s.is_home === undefined ? s.team === m.home : s.is_home), { legend: false });
-    renderShotMap('mp-shots-a', shots.filter(s => s.is_home === undefined ? s.team === m.away : !s.is_home), { legend: false });
-    setHTML('mp-ratings', (m.ratings || []).length ? tableHTML([
-      { label: 'Player' }, { label: 'Club' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'xG', align: 'right' }, { label: 'Rating', align: 'right' }
-    ], m.ratings.map(r => ({ cells: [
-      { v: r.name, html: playerLink(r.id, r.name) }, { v: r.team, html: teamLink(r.team) }, { v: r.minutes, align: 'right' }, { v: r.goals, align: 'right' },
-      { v: r.xg, html: num(r.xg, 2), align: 'right' }, { v: r.rating, html: '<strong>' + num(r.rating, 2) + '</strong>', align: 'right' }
-    ] }))) : '<div class="muted">No ratings.</div>');
-    sortableIn('mp-ratings');
-  });
-}
-
-function matchHeader(f, m, c) {
-  const finished = f.status === 'finished' || f.status === 'live' || (m && m.hs !== null && m.hs !== undefined);
-  const hs = m ? m.hs : f.hs, as = m ? m.as : f.as;
-  const xg = (m && m.xg) ? m.xg : f.xg;
-  const roundTxt = f.round !== null && f.round !== undefined ? (ROUND_LABELS[f.round] || ((f.stage === 'league' || !f.stage) ? 'Round ' + f.round : String(f.round))) : '';
-  return '<div class="match-header">' +
-    '<div class="mh-meta"><a href="#/' + esc(c.slug) + '/fixtures">' + esc(c.name) + '</a> · ' + esc(fmtDate(f.date, true)) + (fmtTime(f.date) ? ' ' + esc(fmtTime(f.date)) : '') + (roundTxt ? ' · ' + esc(roundTxt) : '') + (f.group ? ' · ' + esc(f.group) : '') + '</div>' +
-    '<div class="mh-main">' +
-      '<div class="mh-team"><a href="' + esc(teamHref(f.home)) + '">' + crest(f.home, null, 'xl') + '<span>' + esc(f.home) + '</span></a></div>' +
-      '<div class="mh-score">' + (finished ? '<span class="big">' + hs + ' – ' + as + '</span>' : '<span class="big vs">v</span>') +
-        (xg ? '<span class="xg-line">xG ' + num(xg[0], 2) + ' – ' + num(xg[1], 2) + '</span>' : '') + '<div>' + statusChip(f) + '</div></div>' +
-      '<div class="mh-team"><a href="' + esc(teamHref(f.away)) + '">' + crest(f.away, null, 'xl') + '<span>' + esc(f.away) + '</span></a></div>' +
-    '</div></div>';
-}
-
-function modelCard(f) {
-  const m = f.model;
-  return '<div class="card"><div class="card-header">Model line <span class="card-sub">Dixon-Coles + Elo; fair odds carry no margin.</span></div><div class="pad model-card">' +
-    probBar(m) +
-    '<div class="kpi-grid six">' +
-    statTile('Home win', pct(m.h), 'fair ' + (m.fair[0] || '—')) + statTile('Draw', pct(m.d), 'fair ' + (m.fair[1] || '—')) + statTile('Away win', pct(m.a), 'fair ' + (m.fair[2] || '—')) +
-    statTile('Expected goals', num(m.lh, 2) + ' – ' + num(m.la, 2), 'most likely ' + esc(m.score) + ' (' + pct(m.p_score) + ')') +
-    statTile('Over 2.5', pct(m.o25), 'under ' + pct(1 - m.o25)) + statTile('Both score', pct(m.btts), '') +
-    '</div></div></div>';
-}
-
 // ── wiring ─────────────────────────────────────────────────────────────────
 
 Object.assign(FH.RENDERERS, { home: renderHome });
-Object.assign(FH.PAGES, { team: renderTeamPage, player: renderPlayerPage, match: renderMatchPage });
+Object.assign(FH.PAGES, { team: renderTeamPage, player: renderPlayerPage });   // match: match.js
 Object.assign(FH.PAGE_NEEDS, {
   team: ['probs', 'strength', 'table', 'zones', 'team_stats', 'fixtures', 'players_live'],
   player: ['players_live'],

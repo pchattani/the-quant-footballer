@@ -543,3 +543,18 @@ a.team-link.rev { flex-direction: row-reverse; }
 .fv-btn { flex: none; background: var(--blue); color: #0d1117; border: 0; border-radius: 6px; padding: 7px 14px;
   font-weight: 600; cursor: pointer; }
 @media (max-width: 720px) { .fv-row { flex-direction: column; align-items: stretch; } }
+
+/* Match centre. */
+.ts-group { margin: 14px 0 4px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text3); border-bottom: 1px solid var(--border); padding-bottom: 3px; }
+.xr-legend { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.85rem; color: var(--text2); }
+.xr-note { display: block; margin-top: 8px; line-height: 1.5; }
+.team-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+.rt-chip { display: inline-block; min-width: 30px; padding: 1px 5px; border-radius: 4px; color: #0d1117; font-weight: 700; text-align: center; }
+/* Player lab. */
+.lab-controls label { display: inline-flex; align-items: center; gap: 6px; }
+.lab-controls select { max-width: 260px; }
+.btn-ghost { background: var(--bg3); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+.sheet-cols { column-count: 2; column-gap: 40px; }
+.sheet-cols .ts-head { column-span: all; }
+.sheet-cols .ts-row, .sheet-cols .ts-group { break-inside: avoid; }
+@media (max-width: 960px) { .sheet-cols { column-count: 1; } }
