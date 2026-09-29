@@ -529,3 +529,17 @@ a.team-link.rev { flex-direction: row-reverse; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.1; }
 .brand-tag { font-size: 11px; font-weight: 500; letter-spacing: .02em; color: var(--text2); margin-top: 3px; }
 @media (max-width: 720px) { .brand-tag { display: none; } }
+
+/* Legal: footer line, disclaimer page, first-visit notice. */
+.footer-legal { margin-top: 6px; line-height: 1.5; }
+.footer-legal a, .fv-notice a { color: var(--blue); }
+.legal h5 { margin: 18px 0 6px; color: var(--text); font-size: 0.95rem; }
+.legal p { max-width: 900px; line-height: 1.6; }
+.fv-notice { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1000; background: var(--bg3);
+  border-top: 1px solid var(--border); color: var(--text2); font-size: 0.82rem; padding: 10px 0;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, .35); }
+.fv-notice[hidden] { display: none; }
+.fv-row { display: flex; gap: 16px; align-items: center; justify-content: space-between; }
+.fv-btn { flex: none; background: var(--blue); color: #0d1117; border: 0; border-radius: 6px; padding: 7px 14px;
+  font-weight: 600; cursor: pointer; }
+@media (max-width: 720px) { .fv-row { flex-direction: column; align-items: stretch; } }

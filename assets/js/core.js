@@ -42,13 +42,13 @@ const C = {
 const PALETTE = [C.blue, C.green, C.orange, C.purple, C.red, C.yellow, '#79c0ff', '#d2a8ff'];
 
 // Pages above the competitions, by route segment -> pane / renderer name.
-const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', 'ballon-dor': 'ballondor', compare: 'compare', player: 'career' };
+const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', 'ballon-dor': 'ballondor', compare: 'compare', player: 'career', disclaimer: 'disclaimer' };
 const GLOBAL_TABS = ['home', 'clubs', 'nations', 'leaders', 'ballondor', 'compare'];
 const GLOBAL_ROUTE = { clubs: '#/clubs', nations: '#/nations', leaders: '#/leaders', ballondor: '#/ballon-dor', compare: '#/compare' };
 const FAMILY_LABELS = { cup: 'Continental & world', domestic: 'National cups', super: 'Super cups', international: 'National teams' };
 
 const TAB_LABELS = {
-  home: 'Hub', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', ballondor: "Ballon d'Or", compare: 'Compare',
+  home: 'Hub', disclaimer: 'Disclaimer & terms', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', ballondor: "Ballon d'Or", compare: 'Compare',
   overview: 'Overview', table: 'Table', fixtures: 'Fixtures & Results', zones: 'Zones',
   bracket: 'Playoffs', anual: 'Tabla Anual', relegation: 'Relegation', probs: 'Probabilities',
   power: 'Power Rankings', team: 'Clubs', players: 'Players', matches: 'Matches', market: 'Market',
