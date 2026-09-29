@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Quant Footballer — football odds, models and analytics</title>
+<meta name="theme-color" content="#0d1117">
+<meta property="og:site_name" content="The Quant Footballer">
+<meta property="og:title" content="The Quant Footballer">
+<meta property="og:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pchattani.github.io/the-quant-footballer/">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="The Quant Footballer">
+<meta name="twitter:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<link rel="canonical" href="https://pchattani.github.io/the-quant-footballer/">
+<meta name="description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1117'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2358a6ff' stroke-width='2.5'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/style.css">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">Loading…</div>
+</div>
+
+<header class="site-header">
+  <div class="container-xl">
+    <div class="header-row">
+      <h1 class="site-title"><a href="#/"><span class="brand-mark"></span><span class="brand-text">The Quant Footballer<span class="brand-tag">Odds, models and analytics for world football</span></span></a></h1>
+      <div class="search-box">
+        <input id="search-input" type="search" placeholder="Search clubs, players, competitions…" autocomplete="off" spellcheck="false">
+        <div id="search-results" class="search-results"></div>
+      </div>
+      <div class="comp-picker">
+        <label for="comp-select">Competition</label>
+        <select id="comp-select"><option value="">Hub — all competitions</option></select>
+      </div>
+      <nav class="global-nav">
+        <a href="#/">Hub</a><a href="#/clubs">Clubs across leagues</a><a href="#/nations">National teams</a><a href="#/leaders">Global leaders</a><a href="#/ballon-dor">Ballon d'Or</a><a href="#/compare">Compare</a>
+      </nav>
+      <div class="site-sub"><span id="meta-line">—</span></div>
+    </div>
+  </div>
+</header>
+
+<div id="tab-bar">
+  <div class="container-xl">
+    <ul id="mainTabs"></ul>
+  </div>
+</div>
+
+<div class="container-xl" style="padding-bottom:60px;">
+
+  <div id="stale-banners"></div>
+
+  <!-- ── Hub ─────────────────────────────────────────────────────────── -->
+  <div id="tab-home" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Scoreboard <span class="card-sub">Results and fixtures across every competition followed, with the model's line. Refreshed hourly.</span></div>
+      <div id="date-strip" class="date-strip"></div>
+      <div id="scoreboard" class="scoreboard"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Competitions <span class="card-sub" id="home-sub"></span></div>
+      <div class="pad"><div class="home-grid" id="home-grid"></div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Leaders across competitions</div>
+        <div class="pad" id="hub-leaders"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Favourites</div>
+        <div id="home-chart" style="height:560px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Overview ────────────────────────────────────────────────────── -->
+  <div id="tab-overview" class="tab-pane">
+    <div id="ov-note"></div>
+    <div id="ov-tiles"></div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Latest results</div>
+        <div class="fx-list" id="ov-results"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Next fixtures <span class="card-sub">With the model's win / draw / loss line.</span></div>
+        <div class="fx-list" id="ov-fixtures"></div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">The race</div>
+        <div id="ov-race" style="height:340px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Leaders</div>
+        <div class="pad" id="ov-leaders"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Table ───────────────────────────────────────────────────────── -->
+  <div id="tab-table" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Standings <span class="card-sub" id="table-sub"></span></div>
+      <div class="band-legend" id="band-legend"></div>
+      <div id="table-grid" class="pad"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Finishing-position distribution</div>
+      <div id="position-heatmap" style="height:640px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Upcoming fixtures</div>
+      <div id="upcoming-fixtures"></div>
+    </div>
+  </div>
+
+  <!-- ── Fixtures & Results ──────────────────────────────────────────── -->
+  <div id="tab-fixtures" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Fixtures &amp; results <span class="card-sub" id="fx-count"></span></div>
+      <div class="controls">
+        <select id="fx-status" class="team-select" style="max-width:180px">
+          <option value="upcoming">Upcoming</option>
+          <option value="played">Played</option>
+          <option value="all">All matches</option>
+        </select>
+        <select id="fx-stage" class="team-select" style="max-width:220px"></select>
+        <select id="fx-team" class="team-select" style="max-width:240px"></select>
+        <span class="legend-inline"><span class="pb-key pb-h"></span> home <span class="pb-key pb-d"></span> draw <span class="pb-key pb-a"></span> away</span>
+      </div>
+      <div class="fx-list" id="fx-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Zones (Argentina) ───────────────────────────────────────────── -->
+  <div id="tab-zones" class="tab-pane">
+    <div class="card">
+      <div class="card-header">League phase <span class="card-sub" id="zones-sub"></span></div>
+      <div class="cut-note">The dashed line marks the cut for the Round of 16 (top 8).</div>
+      <div class="zone-grid pad" id="zone-grid"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Upcoming fixtures</div>
+      <div id="zone-upcoming"></div>
+    </div>
+  </div>
+
+  <!-- ── Playoffs / knockout ─────────────────────────────────────────── -->
+  <div id="tab-bracket" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Bracket <span class="card-sub" id="bracket-sub"></span></div>
+      <div id="bracket-note" class="prose-dark pad"></div>
+      <div id="bracket-body" class="pad"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Probability of reaching each round</div>
+      <div id="reach-table"></div>
+    </div>
+  </div>
+
+  <!-- ── Tabla Anual (Argentina) ─────────────────────────────────────── -->
+  <div id="tab-anual" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Tabla Anual <span class="card-sub" id="anual-sub"></span></div>
+      <div id="anual-note" class="prose-dark pad"></div>
+      <div id="anual-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Finishing-position distribution</div>
+      <div id="anual-heatmap" style="height:640px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Relegation (Argentina) ──────────────────────────────────────── -->
+  <div id="tab-relegation" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Relegation <span class="card-sub" id="releg-sub"></span></div>
+      <div id="releg-explainer" class="prose-dark pad"></div>
+      <div id="releg-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Relegation risk</div>
+      <div id="releg-chart" style="height:420px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Probabilities ───────────────────────────────────────────────── -->
+  <div id="tab-probs" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Summary by club <span class="card-sub">Click a header to sort.</span></div>
+      <div id="probs-table"></div>
+    </div>
+  </div>
+
+  <!-- ── Power Rankings ──────────────────────────────────────────────── -->
+  <div id="tab-power" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Model strength <span class="card-sub">Expected points per game against an average opponent at a neutral venue.</span></div>
+      <div id="power-explainer" class="prose-dark pad"></div>
+      <div id="power-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Luck: actual points against what the xG deserved <span class="card-sub">Right: clubs outperforming their xG; left: underperforming.</span></div>
+      <div id="luck-chart" style="height:520px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Schedule <span class="card-sub">Mean strength of opponents already played against those still to come.</span></div>
+      <div id="sos-chart" style="height:460px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Elo over the season</div>
+      <div id="elo-chart" style="height:480px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Clubs ───────────────────────────────────────────────────────── -->
+  <div id="tab-team" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Clubs <span class="card-sub">Open a club for its season profile, results with xG, squad percentiles and the model's line on its fixtures.</span></div>
+      <div class="pad"><select id="team-select" class="team-select"></select></div>
+      <div class="pad" id="team-grid"></div>
+    </div>
+  </div>
+
+  <!-- ── Players ─────────────────────────────────────────────────────── -->
+  <div id="tab-players" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Leaderboard <span class="card-sub" id="players-sub"></span></div>
+      <div class="controls">
+        <select id="metric-select" class="team-select" style="max-width:240px"></select>
+        <select id="player-pos-filter" class="team-select" style="max-width:150px">
+          <option value="">All positions</option>
+          <option value="G">Goalkeepers</option>
+          <option value="D">Defenders</option>
+          <option value="M">Midfielders</option>
+          <option value="F">Forwards</option>
+        </select>
+        <select id="player-team-filter" class="team-select" style="max-width:220px"></select>
+        <label>min. minutes <input type="number" id="min-minutes" value="270" min="0" step="90" style="width:70px"></label>
+        <label><input type="checkbox" id="qualified-only"> qualified only</label>
+      </div>
+      <div id="players-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Top-scorer race <span class="card-sub">Probability of finishing as the season's top scorer, from the same simulation.</span></div>
+      <div id="scorer-race"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Compare players <span class="card-sub">Percentile profile against positional peers.</span></div>
+        <div class="controls">
+          <select id="cmp-a" class="team-select"></select>
+          <select id="cmp-b" class="team-select"></select>
+        </div>
+        <div id="compare-chart" style="height:440px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Creation against finishing <span class="card-sub">Qualified outfield players; size by goals, colour by rating.</span></div>
+        <div id="player-scatter" style="height:520px;"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Shot map <span class="card-sub">Marker size by xG.</span></div>
+      <div class="pad"><select id="shotmap-player" class="team-select"></select></div>
+      <div id="shotmap" style="height:520px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Matches ─────────────────────────────────────────────────────── -->
+  <div id="tab-matches" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Matches <span class="card-sub" id="matches-sub"></span></div>
+      <div class="controls">
+        <select id="matches-team" class="team-select" style="max-width:240px"></select>
+        <label><input type="checkbox" id="matches-detail-only" checked> with full match data only</label>
+      </div>
+      <div id="matches-list"></div>
+    </div>
+  </div>
+
+  <!-- ── Market ──────────────────────────────────────────────────────── -->
+  <div id="tab-market" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Model against market <span class="card-sub" id="market-sub"></span></div>
+      <div id="market-explainer" class="prose-dark pad"></div>
+      <div id="market-matches"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Outright winner</div>
+      <div id="market-outrights"></div>
+    </div>
+  </div>
+
+  <!-- ── History ─────────────────────────────────────────────────────── -->
+  <div id="tab-history" class="tab-pane">
+    <div class="card">
+      <div class="card-header">How the probabilities have moved <span class="card-sub">Each point is one hourly model run.</span></div>
+      <div class="pad"><select id="history-series" class="team-select"></select></div>
+      <div id="history-chart" style="height:520px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Methodology ─────────────────────────────────────────────────── -->
+  <div id="tab-methodology" class="tab-pane">
+    <div class="card">
+      <div class="card-header">How the model works</div>
+      <div class="prose-dark" style="padding:14px;">
+        <p>
+          Every update simulates the rest of the season many times and counts how
+          often each outcome happens. All the probabilities on the site come from the
+          same run, so they are mutually consistent.
+        </p>
+        <h5>Match model</h5>
+        <p>
+          A Dixon-Coles model estimates each club's attack and defence from the matches
+          played, weighting recent ones more heavily. Where xG is available it is used
+          in place of goals: xG describes performance better than a scoreline decided
+          by a deflection. An Elo rating provides a stable prior and is blended with the
+          Dixon-Coles estimate. Home advantage is modelled explicitly in both. The same
+          model prices every fixture on the Fixtures tab: win, draw and loss
+          probabilities, expected goals, the most likely score, over 2.5 goals, both
+          teams to score, and the fair decimal odds (one over the probability, with no
+          bookmaker margin).
+        </p>
+        <h5>Calibration</h5>
+        <p>
+          The draw rate and average goals are measured from this competition's own matches
+          rather than assumed, because leagues differ: Argentine football has more draws
+          and fewer goals than the Bundesliga.
+        </p>
+        <div id="method-calibration"></div>
+        <h5>Format</h5>
+        <div id="method-format"></div>
+        <h5>Player and team analytics</h5>
+        <p>
+          Per-match player statistics, shot maps, momentum, incidents and the team
+          statistics sheet come from Sofascore for every match with detailed coverage.
+          Per-90 rates divide a total by minutes played over ninety; percentiles rank a
+          player against players of the same position group (goalkeepers, defenders,
+          midfielders, forwards) in the same competition who have passed a minutes
+          floor, which rises to 270 minutes as the season goes on. Non-penalty xG
+          subtracts 0.79 per penalty scored. A goalkeeper's goals conceded are the
+          opponent's goals in the matches they played, pro-rated by minutes. Team
+          percentiles rank a club's per-match averages against the rest of the
+          competition.
+        </p>
+        <h5>What it does not model</h5>
+        <ul>
+          <li>Injuries, suspensions and squad rotation.</li>
+          <li>Cup competitions that hand out continental berths from outside the league.</li>
+          <li>Managerial changes and other context that does not show up in results.</li>
+        </ul>
+        <div id="method-notes"></div>
+        <h5>Data</h5>
+        <p>
+          Sofascore, refreshed hourly. When a refresh fails the site keeps serving the
+          last good data and says so at the top rather than showing blanks. Detailed
+          match data arrives a few hours after the final whistle.
+        </p>
+        <div id="method-model"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Clubs across leagues ─────────────────────────────────────────── -->
+  <div id="tab-clubs" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Leagues on one scale <span class="card-sub">From the pooled Dixon-Coles fit: cup matches put every club on one surface. A league's bridge is the number of cup matches connecting it; the scale between continents rests on the Intercontinental Cup and the Club World Cup and is the least certain thing on the page.</span></div>
+      <div id="leagues-table"></div>
+      <div id="bridges-note" class="prose-dark pad"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">If they met <span class="card-sub">Any two clubs, priced from the pooled model.</span></div>
+      <div class="controls">
+        <select id="hypo-a" class="team-select" style="max-width:300px"></select>
+        <span class="muted-inline">v</span>
+        <select id="hypo-b" class="team-select" style="max-width:300px"></select>
+        <select id="hypo-venue" class="team-select" style="max-width:180px"><option value="home">first club at home</option><option value="neutral">neutral venue</option></select>
+      </div>
+      <div class="pad" id="hypo-result"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Every club <span class="card-sub" id="clubs-sub"></span></div>
+      <div class="controls">
+        <select id="clubs-league" class="team-select" style="max-width:260px"></select>
+        <input id="clubs-search" type="search" placeholder="Find a club…" style="max-width:220px">
+      </div>
+      <div id="clubs-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">The strongest 25</div>
+      <div id="clubs-chart" style="height:640px;"></div>
+    </div>
+  </div>
+
+  <!-- ── National teams ────────────────────────────────────────────────── -->
+  <div id="tab-nations" class="tab-pane">
+    <div class="card">
+      <div class="card-header">National teams on one scale <span class="card-sub" id="nations-sub"></span></div>
+      <div id="nations-note" class="prose-dark pad"></div>
+      <div class="controls">
+        <select id="nations-conf" class="team-select" style="max-width:220px"></select>
+        <input id="nations-search" type="search" placeholder="Find a team…" style="max-width:220px">
+      </div>
+      <div id="nations-table"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">If they met <span class="card-sub">Any two national teams, priced from the international fit.</span></div>
+      <div class="controls">
+        <select id="nhypo-a" class="team-select" style="max-width:300px"></select>
+        <span class="muted-inline">v</span>
+        <select id="nhypo-b" class="team-select" style="max-width:300px"></select>
+        <select id="nhypo-venue" class="team-select" style="max-width:180px"><option value="neutral">neutral venue</option><option value="home">first team at home</option></select>
+      </div>
+      <div class="pad" id="nhypo-result"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Next internationals <span class="card-sub">Across every national-team competition followed, with the model's line.</span></div>
+      <div class="fx-list" id="nations-fixtures"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">The strongest 25</div>
+      <div id="nations-chart" style="height:640px;"></div>
+    </div>
+  </div>
+
+  <!-- ── Global leaders ────────────────────────────────────────────────── -->
+  <div id="tab-leaders" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Players across competitions <span class="card-sub" id="leaders-sub"></span></div>
+      <div id="leaders-note" class="prose-dark pad"></div>
+      <div class="controls">
+        <select id="leaders-metric" class="team-select" style="max-width:280px"></select>
+        <select id="leaders-pos" class="team-select" style="max-width:150px">
+          <option value="">All positions</option>
+          <option value="G">Goalkeepers</option>
+          <option value="D">Defenders</option>
+          <option value="M">Midfielders</option>
+          <option value="F">Forwards</option>
+        </select>
+        <select id="leaders-comp" class="team-select" style="max-width:240px"></select>
+        <label>min. minutes <input type="number" id="leaders-min" value="270" min="0" step="90" style="width:70px"></label>
+      </div>
+      <div id="leaders-table"></div>
+    </div>
+  </div>
+
+  <!-- ── Ballon d'Or ───────────────────────────────────────────────────── -->
+  <div id="tab-ballondor" class="tab-pane">
+    <div class="card">
+      <div class="card-header">Ballon d'Or <span class="card-sub" id="bd-sub"></span></div>
+      <div id="bd-notes" class="pad"></div>
+      <div id="bd-table"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Model against market</div>
+        <div id="bd-chart" style="height:420px;"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">Market <span class="card-sub">Polymarket: win, top-3 and top-5 markets, implied from YES prices.</span></div>
+        <div id="bd-market"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">How the two have moved <span class="card-sub">Model (solid) and market (dotted) per hourly run.</span></div>
+      <div id="bd-history" style="height:360px;"></div>
+    </div>
+    <div class="card">
+      <div class="card-header">Next year's race <span class="card-sub" id="bd-next-sub"></span></div>
+      <div id="bd-next"></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-header">Past winners</div>
+        <div id="bd-winners"></div>
+      </div>
+      <div class="card">
+        <div class="card-header">The model</div>
+        <div id="bd-method" class="prose-dark pad"></div>
+        <div id="bd-weights"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Compare ───────────────────────────────────────────────────────── -->
+  <div id="tab-compare" class="tab-pane"></div>
+
+  <!-- ── Club / player / match / career pages ──────────────────────────── -->
+  <div id="tab-page" class="tab-pane"></div>
+
+</div>
+
+<footer class="site-footer">
+  <div class="container-xl">
+    <span id="footer-meta">—</span>
+    · The Quant Footballer · Data from Sofascore · Dixon-Coles + Elo model · Fair odds carry no margin and are not betting advice
+  </div>
+</footer>
+
+<script src="assets/js/core.js"></script>
+<script src="assets/js/charts.js"></script>
+<script src="assets/js/tabs.js"></script>
+<script src="assets/js/pages.js"></script>
+<script src="assets/js/global.js"></script>
+</body>
+</html>
