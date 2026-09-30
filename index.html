@@ -509,9 +509,13 @@
     <div class="card">
       <div class="card-header">Player lab <span class="card-sub" id="lab-sub"></span></div>
       <div class="controls lab-controls">
-        <label>Scope <select id="lab-comp" class="team-select"></select></label>
+        <label>View <select id="lab-win" class="team-select"></select></label>
+        <label><input id="lab-shrink" type="checkbox"> Shrink small samples</label>
+      </div>
+      <div class="controls lab-controls">
+        <label><span id="lab-comp-label">Scope</span> <select id="lab-comp" class="team-select"></select></label>
         <label>Position <select id="lab-pos" class="team-select"></select></label>
-        <label>View <select id="lab-preset" class="team-select"></select></label>
+        <label>Chart <select id="lab-preset" class="team-select"></select></label>
         <label>Min. minutes <input id="lab-min" type="range" min="90" max="2000" step="30"> <span id="lab-min-v"></span></label>
         <label id="lab-adj-wrap"><input id="lab-adj" type="checkbox"> League-adjust attacking rates</label>
       </div>
@@ -523,6 +527,7 @@
         <label>Colour <select id="lab-color" class="team-select"></select></label>
         <input id="lab-q" type="search" placeholder="Highlight a player…" style="max-width:200px">
       </div>
+      <div id="lab-cover" class="pad-x"></div>
       <div id="lab-chart" style="height:640px"></div>
       <div class="prose-dark pad"><p class="muted-inline" id="lab-note"></p></div>
     </div>

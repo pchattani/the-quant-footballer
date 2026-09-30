@@ -55,8 +55,12 @@ const PRESETS = {
 };
 const EXTRA_ADJ = ['npxg_xa_90', 'ga_90', 'shot_creation_90'];   // attacking rates adjusted like the catalogue's own
 
-let LAB = null;           // { fields, idx, metrics, meta, comps, rows }
-let S = { comp: '', pos: 'F', min: 450, adj: true, preset: 0, x: '', y: '', size: 'minutes', color: 'comp', q: '' };
+let LAB = null;           // the loaded window: { fields, idx, metrics, meta, comps, rows, window }
+const LABS = {};          // by window tag
+const WINDOWS = { season: 'This season, per competition', '365': 'Last 12 months, all competitions', ytd: 'Calendar year so far, all competitions' };
+const SHRINK_K = 450;     // minutes of prior: a player's rate counts as much as the group median's after five full matches
+const MU = {};            // group medians of the metrics on screen, for the shrinkage
+let S = { win: 'season', comp: '', pos: 'F', min: 450, adj: true, shrink: true, preset: 0, x: '', y: '', size: 'minutes', color: 'comp', q: '' };
 
 function prep(raw) {
   const idx = {};
@@ -65,16 +69,31 @@ function prep(raw) {
   raw.metrics.forEach(m => { meta[m.key] = m; });
   meta.minutes = { key: 'minutes', label: 'Minutes', fmt: 'int' };
   meta.age = { key: 'age', label: 'Age', fmt: 'int' };
-  return { fields: raw.fields, idx: idx, meta: meta, metrics: raw.metrics, comps: raw.comps, adj: new Set((raw.adjusted_keys || []).concat(EXTRA_ADJ)), rows: raw.rows, min: raw.min_minutes };
+  return { fields: raw.fields, idx: idx, meta: meta, metrics: raw.metrics, comps: raw.comps, adj: new Set((raw.adjusted_keys || []).concat(EXTRA_ADJ)), rows: raw.rows, min: raw.min_minutes, window: raw.window || null };
 }
 
-function val(r, key) {
+/* League adjustment applies whenever players from different competitions share
+   the chart: across competitions in the season view, always in a calendar view
+   (a player's window mixes competitions; the row carries his own blended factor). */
+function adjOn() { return S.adj && (!S.comp || S.win !== 'season'); }
+
+function raw(r, key) {
   const i = LAB.idx[key];
   if (i === undefined) return null;
   let v = r[i];
   if (v === null || v === undefined) return null;
-  if (S.adj && !S.comp && LAB.adj.has(key)) v = v * ((LAB.comps[r[LAB.idx.comp]] || {}).factor || 1);
+  if (adjOn() && LAB.adj.has(key)) v = v * (LAB.idx.factor !== undefined ? (r[LAB.idx.factor] || 1) : ((LAB.comps[r[LAB.idx.comp]] || {}).factor || 1));
   return v;
+}
+
+/* Small samples shrunk towards the group median: (minutes × rate + K × median) /
+   (minutes + K). Five matches of data move a player halfway from the median to
+   his own rate; two thousand minutes leave him almost untouched. */
+function val(r, key) {
+  let v = raw(r, key);
+  if (v === null || !S.shrink || key === 'minutes' || key === 'age' || MU[key] === undefined) return v;
+  const m = r[LAB.idx.minutes] || 0;
+  return (m * v + SHRINK_K * MU[key]) / (m + SHRINK_K);
 }
 
 function pool() {
@@ -87,7 +106,12 @@ function pool() {
   });
 }
 
-function label(key) { const m = LAB.meta[key] || {}; return (m.label || key) + (S.adj && !S.comp && LAB.adj.has(key) ? ' (adj.)' : ''); }
+function label(key) {
+  const m = LAB.meta[key] || {}, tags = [];
+  if (adjOn() && LAB.adj.has(key)) tags.push('adj.');
+  if (S.shrink && key !== 'minutes' && key !== 'age') tags.push('shrunk');
+  return (m.label || key) + (tags.length ? ' (' + tags.join(', ') + ')' : '');
+}
 function lower(key) { return !!(LAB.meta[key] || {}).lower; }
 function fmt(key, v) { return fmtMetric(v, (LAB.meta[key] || {}).fmt || '2'); }
 
@@ -110,6 +134,9 @@ function metricOptions(sel, scope) {
 function syncControls() {
   const $ = id => document.getElementById(id);
   const comps = Object.keys(LAB.comps).sort((a, b) => LAB.comps[a].name.localeCompare(LAB.comps[b].name));
+  $('lab-win').innerHTML = Object.keys(WINDOWS).map(k => '<option value="' + k + '"' + (k === S.win ? ' selected' : '') + '>' + esc(WINDOWS[k]) + '</option>').join('');
+  $('lab-shrink').checked = S.shrink;
+  $('lab-comp-label').textContent = S.win === 'season' ? 'Scope' : 'Main competition';
   $('lab-comp').innerHTML = '<option value="">All competitions (global)</option>' + comps.map(k => '<option value="' + esc(k) + '"' + (k === S.comp ? ' selected' : '') + '>' + esc(LAB.comps[k].name) + '</option>').join('');
   $('lab-pos').innerHTML = Object.keys(POS).map(k => '<option value="' + k + '"' + (k === S.pos ? ' selected' : '') + '>' + POS[k] + '</option>').join('');
   $('lab-preset').innerHTML = PRESETS[S.pos].map((p, i) => '<option value="' + i + '"' + (i === S.preset ? ' selected' : '') + '>' + esc(p[2]) + '</option>').join('') + '<option value="-1"' + (S.preset < 0 ? ' selected' : '') + '>Custom axes</option>';
@@ -117,7 +144,7 @@ function syncControls() {
   $('lab-size').innerHTML = metricOptions(S.size, 'size'); $('lab-size').value = S.size;
   $('lab-color').innerHTML = metricOptions(S.color, 'color'); $('lab-color').value = S.color;
   $('lab-min').value = S.min; $('lab-min-v').textContent = S.min + "'";
-  $('lab-adj').checked = S.adj; $('lab-adj-wrap').style.display = S.comp ? 'none' : '';
+  $('lab-adj').checked = S.adj; $('lab-adj-wrap').style.display = (S.comp && S.win === 'season') ? 'none' : '';
   $('lab-q').value = S.q;
 }
 
@@ -129,9 +156,21 @@ function applyPreset() {
 
 function draw() {
   const I = LAB.idx;
-  const rows = pool().filter(r => val(r, S.x) !== null && val(r, S.y) !== null);
-  const scopeName = S.comp ? LAB.comps[S.comp].name : 'every competition';
-  setHTML('lab-sub', rows.length + ' ' + POS[S.pos].toLowerCase() + ' in ' + esc(scopeName) + ' with ' + S.min + '+ minutes');
+  const base0 = pool();
+  Object.keys(MU).forEach(k => delete MU[k]);
+  [S.x, S.y, S.size, S.color].forEach(k => { if (k && LAB.idx[k] !== undefined && k !== 'minutes' && k !== 'age') { const a = base0.map(r => raw(r, k)).filter(v => v !== null); if (a.length) MU[k] = median(a); } });
+  const rows = base0.filter(r => val(r, S.x) !== null && val(r, S.y) !== null);
+  const scopeName = S.comp ? ((LAB.comps[S.comp] || {}).name || S.comp) : 'every competition';
+  const W = LAB.window;
+  setHTML('lab-sub', rows.length + ' ' + POS[S.pos].toLowerCase() + (S.win === 'season' ? ' in ' + esc(scopeName) : (S.comp ? ' whose main competition is ' + esc(scopeName) : '') + ', ' + esc(W.label.toLowerCase()) + ' (' + esc(W.start) + ' to ' + esc(W.end) + ')') + ' with ' + S.min + '+ minutes');
+  if (S.win !== 'season' && W) {
+    const present = new Set(rows.map(r => r[I.comp]));
+    const late = Object.keys(LAB.comps).filter(k => present.has(k) && LAB.comps[k].first_detail && LAB.comps[k].first_detail > W.start)
+      .sort((a, b) => LAB.comps[b].first_detail.localeCompare(LAB.comps[a].first_detail));
+    setHTML('lab-cover', late.length ? '<div class="warn-banner">Match detail does not yet reach back to ' + esc(W.start) + ' for: ' +
+      late.map(k => esc(LAB.comps[k].name) + ' (from ' + esc(LAB.comps[k].first_detail) + ')').join(', ') +
+      '. Players from those competitions are compared on less of the window than the rest; the hourly fetch is filling last season in, newest first.</div>' : '');
+  } else setHTML('lab-cover', '');
   if (rows.length < 3) { setHTML('lab-chart', '<div class="muted pad">Too few players for this view; lower the minutes or widen the scope.</div>'); setHTML('lab-table', ''); return; }
   const xs = rows.map(r => val(r, S.x)), ys = rows.map(r => val(r, S.y));
   const mx = median(xs), my = median(ys), sx = stats(xs), sy = stats(ys);
@@ -152,9 +191,10 @@ function draw() {
   })();
   const groupKey = S.color === 'comp' ? r => r[I.comp] : S.color === 'team' ? r => r[I.team] : null;
   const traces = [];
-  const hover = r => '<b>' + esc(r[I.name]) + '</b> · ' + esc(r[I.team]) + '<br>' + esc((LAB.comps[r[I.comp]] || {}).name || r[I.comp]) + ' · ' + r[I.minutes] + "' · age " + (r[I.age] || '—') +
+  const hover = r => '<b>' + esc(r[I.name]) + '</b> · ' + esc(r[I.team]) + '<br>' + (I.mix !== undefined ? esc(r[I.mix]) : esc((LAB.comps[r[I.comp]] || {}).name || r[I.comp]) + ' · ' + r[I.minutes] + "'") + ' · age ' + (r[I.age] || '—') +
     '<br>' + esc(label(S.x)) + ': ' + fmt(S.x, val(r, S.x)) + ' (pct ' + Math.round((dirx > 0 ? pctRank(sortedX, val(r, S.x)) : 100 - pctRank(sortedX, val(r, S.x)))) + ')' +
-    '<br>' + esc(label(S.y)) + ': ' + fmt(S.y, val(r, S.y)) + ' (pct ' + Math.round((diry > 0 ? pctRank(sortedY, val(r, S.y)) : 100 - pctRank(sortedY, val(r, S.y)))) + ')';
+    '<br>' + esc(label(S.y)) + ': ' + fmt(S.y, val(r, S.y)) + ' (pct ' + Math.round((diry > 0 ? pctRank(sortedY, val(r, S.y)) : 100 - pctRank(sortedY, val(r, S.y)))) + ')' +
+    (S.shrink ? '<br><span style="color:#8b949e">unshrunk: ' + fmt(S.x, raw(r, S.x)) + ' · ' + fmt(S.y, raw(r, S.y)) + '</span>' : '');
   const base = (pts, name, color, extra) => Object.assign({
     type: 'scattergl', mode: 'markers', name: name, x: pts.map(r => val(r, S.x)), y: pts.map(r => val(r, S.y)),
     text: pts.map(hover), hovertemplate: '%{text}<extra></extra>', customdata: pts.map(r => r[I.comp] + '|' + r[I.player_id]),
@@ -189,18 +229,19 @@ function draw() {
   if (el && el.on) el.on('plotly_click', ev => { const d = ev.points && ev.points[0] && ev.points[0].customdata; if (d) { const [c, id] = d.split('|'); location.hash = '#/' + c + '/player/' + id; } });
   setHTML('lab-note', 'Dotted lines are the medians of this group. ' + (lower(S.x) || lower(S.y) ? 'Axes where less is better are reversed, so better is always up and to the right. ' : 'Better is up and to the right. ') +
     'Labelled: the twelve players furthest into that corner (sum of standard scores on both axes)' + (hits.length ? ', and your search' : '') + '. Click a dot to open the player.' +
-    (!S.comp && S.adj ? ' Attacking rates marked "adj." are multiplied by the league\'s scoring factor from the pooled model.' : ''));
+    (adjOn() ? ' Attacking rates marked "adj." are multiplied by the league\'s scoring factor from the pooled model' + (S.win !== 'season' ? ' (for a calendar window, the minutes-weighted blend of the competitions the player played in).' : '.') : '') +
+    (S.shrink ? ' Rates marked "shrunk" are pulled towards the group median by ' + SHRINK_K + " minutes of prior, so a player five matches in is not ranked on five matches alone; hover shows the raw figures." : ''));
 
   // The table: the whole group ranked by the same combined score.
   setHTML('lab-table', tableHTML([
-    { label: '#', sortable: false }, { label: 'Player' }, { label: 'Club' }, { label: 'Competition' }, { label: 'Age', align: 'right' }, { label: 'Min', align: 'right' },
+    { label: '#', sortable: false }, { label: 'Player' }, { label: 'Club' }, { label: I.mix !== undefined ? 'Competitions (minutes)' : 'Competition' }, { label: 'Age', align: 'right' }, { label: 'Min', align: 'right' },
     { label: label(S.x), align: 'right' }, { label: 'Pct', align: 'right' }, { label: label(S.y), align: 'right' }, { label: 'Pct', align: 'right' }, { label: 'Combined', align: 'right', title: 'Sum of standard scores, better direction' }
   ], ranked.slice(0, 60).map((o, i) => {
     const r = o.r, vx = val(r, S.x), vy = val(r, S.y);
     const px = dirx > 0 ? pctRank(sortedX, vx) : 100 - pctRank(sortedX, vx), py = diry > 0 ? pctRank(sortedY, vy) : 100 - pctRank(sortedY, vy);
     return { _href: '#/' + r[I.comp] + '/player/' + r[I.player_id], cells: [
       { v: i + 1, cls: 'pos-cell' }, { v: r[I.name], html: '<a href="#/' + esc(r[I.comp]) + '/player/' + esc(r[I.player_id]) + '">' + esc(r[I.name]) + '</a>' },
-      { v: r[I.team], html: esc(r[I.team]) }, { v: r[I.comp], html: esc((LAB.comps[r[I.comp]] || {}).name || r[I.comp]) },
+      { v: r[I.team], html: esc(r[I.team]) }, { v: r[I.comp], html: I.mix !== undefined ? '<span class="muted-inline">' + esc(r[I.mix]) + '</span>' : esc((LAB.comps[r[I.comp]] || {}).name || r[I.comp]) },
       { v: r[I.age] || 0, html: r[I.age] || '—', align: 'right' }, { v: r[I.minutes], align: 'right' },
       { v: vx, html: fmt(S.x, vx), align: 'right' }, { v: px, html: pctPill(px), align: 'right' },
       { v: vy, html: fmt(S.y, vy), align: 'right' }, { v: py, html: pctPill(py), align: 'right' },
@@ -208,23 +249,43 @@ function draw() {
     ] };
   }), { sticky: true }));
   sortableIn('lab-table');
-  const hash = '#/lab/' + (S.comp || 'all') + '/' + S.pos;
+  const hash = '#/lab/' + (S.comp || 'all') + '/' + S.pos + (S.win !== 'season' ? '/' + S.win : '');
   if (location.hash !== hash) history.replaceState(null, '', hash);
 }
 
+function loadWindow(win) {
+  if (LABS[win]) return Promise.resolve(LABS[win]);
+  return loadSite(win === 'season' ? 'players_lab.json' : 'players_lab_' + win + '.json').then(raw => {
+    if (!raw || !(raw.rows || []).length) return null;
+    LABS[win] = prep(raw);
+    return LABS[win];
+  });
+}
+
+function show(win) {
+  return loadWindow(win).then(lab => {
+    if (!lab) { setHTML('lab-chart', '<div class="muted pad">This view is not built yet.</div>'); setHTML('lab-table', ''); return false; }
+    LAB = lab;
+    if (S.comp && !LAB.comps[S.comp]) S.comp = '';
+    return true;
+  });
+}
+
 function renderLab(param) {
-  loadSite('players_lab.json').then(raw => {
-    if (!raw || !(raw.rows || []).length) { setHTML('lab-chart', '<div class="muted pad">The Player lab data is not built yet.</div>'); return; }
-    if (!LAB) LAB = prep(raw);
-    const parts = String(param || '').split('/').filter(Boolean);
+  const parts = String(param || '').split('/').filter(Boolean);
+  if (parts[2] && WINDOWS[parts[2]]) S.win = parts[2]; else if (parts.length) S.win = 'season';
+  show(S.win).then(ok => {
+    if (!ok) return;
     if (parts[0]) S.comp = parts[0] === 'all' ? '' : (LAB.comps[parts[0]] ? parts[0] : '');
     if (parts[1] && POS[parts[1]]) S.pos = parts[1];
-    S.min = S.comp ? Math.min(S.min, 270) : Math.max(S.min, 450);
+    S.min = (S.comp && S.win === 'season') ? Math.min(S.min, 270) : Math.max(S.min, 450);
     if (S.comp && S.color === 'comp') S.color = 'rating';
     if (!S.x) applyPreset();
     syncControls();
     const $ = id => document.getElementById(id);
-    $('lab-comp').onchange = e => { S.comp = e.target.value; S.min = S.comp ? 270 : 450; if (S.comp && S.color === 'comp') S.color = 'rating'; if (!S.comp && S.color === 'rating') S.color = 'comp'; syncControls(); draw(); };
+    $('lab-win').onchange = e => { S.win = e.target.value; show(S.win).then(ok2 => { if (!ok2) return; S.min = (S.comp && S.win === 'season') ? 270 : 450; syncControls(); draw(); }); };
+    $('lab-shrink').onchange = e => { S.shrink = e.target.checked; draw(); };
+    $('lab-comp').onchange = e => { S.comp = e.target.value; S.min = (S.comp && S.win === 'season') ? 270 : 450; if (S.comp && S.color === 'comp') S.color = 'rating'; if (!S.comp && S.color === 'rating') S.color = 'comp'; syncControls(); draw(); };
     $('lab-pos').onchange = e => { S.pos = e.target.value; S.preset = 0; applyPreset(); syncControls(); draw(); };
     $('lab-preset').onchange = e => { S.preset = parseInt(e.target.value, 10); applyPreset(); syncControls(); draw(); };
     $('lab-x').onchange = e => { S.x = e.target.value; S.preset = -1; syncControls(); draw(); };

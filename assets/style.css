@@ -558,3 +558,4 @@ a.team-link.rev { flex-direction: row-reverse; }
 .sheet-cols .ts-head { column-span: all; }
 .sheet-cols .ts-row, .sheet-cols .ts-group { break-inside: avoid; }
 @media (max-width: 960px) { .sheet-cols { column-count: 1; } }
+.warn-banner { margin: 6px 14px; padding: 8px 12px; border: 1px solid #9e6a03; border-radius: 6px; background: rgba(210,153,34,0.08); color: #e3b341; font-size: 0.8rem; line-height: 1.45; }
