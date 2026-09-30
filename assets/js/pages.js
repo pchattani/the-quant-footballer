@@ -14,136 +14,7 @@ const { INDEX, C, PALETTE, ROUND_LABELS, esc, pct, num, signed, fmtNum, fmtMetri
 
 // ── the hub ────────────────────────────────────────────────────────────────
 
-let HUB = null;
-let hubDay = null;
-
-function renderHome() {
-  const comps = INDEX.competitions;
-  setHTML('home-sub', comps.filter(c => c.ok).length + ' of ' + comps.length + ' live');
-  renderCompetitionCards(comps);
-  if (HUB) { renderScoreboard(); renderHubLeaders(); }
-  else {
-    FH.fetchJSON('data/hub.json', { days: {}, leaders: {} }).then(h => { HUB = h; renderScoreboard(); renderHubLeaders(); });
-  }
-  const live = comps.filter(c => c.ok && c.favourite);
-  if (live.length) {
-    renderProbBars('home-chart', live.map(c => ({ label: (c.short_name || c.name) + ' — ' + c.favourite, p: c.p_favourite })), 'Probability the favourite wins', C.blue);
-  } else {
-    setHTML('home-chart', '<div class="muted">Nothing built yet.</div>');
-  }
-}
-
-function crestSrc(team, src) { return crest(team, src); }
-
-const RECENT = '__recent', UPCOMING = '__upcoming';
-
-function renderScoreboard() {
-  const hub = HUB || {};
-  const days = hub.days || {};
-  const keys = Object.keys(days).sort();
-  // Group by the viewer's local day rather than the UTC day the build used.
-  const local = {};
-  keys.forEach(k => days[k].forEach(it => { const d = localDay(it.date) || k; (local[d] = local[d] || []).push(it); }));
-  const localKeys = Object.keys(local).sort();
-  const today = localDay(new Date().toISOString());
-  // Every competition's latest results and next fixtures bracket the week, so
-  // the board reads during an international break too.
-  const buckets = Object.assign({}, local);
-  const order = localKeys.slice();
-  if ((hub.recent || []).length) { buckets[RECENT] = hub.recent; order.unshift(RECENT); }
-  if ((hub.upcoming || []).length) { buckets[UPCOMING] = hub.upcoming; order.push(UPCOMING); }
-  if (!order.length) {
-    setHTML('scoreboard', '<div class="muted">No matches across the competitions followed.</div>');
-    setHTML('date-strip', '');
-    return;
-  }
-  if (!hubDay || order.indexOf(hubDay) < 0) {
-    hubDay = localKeys.indexOf(today) >= 0 ? today : (localKeys.find(k => k > today) || (buckets[UPCOMING] ? UPCOMING : order[order.length - 1]));
-  }
-  setHTML('date-strip', order.map(k => {
-    const n = buckets[k].length, lv = buckets[k].filter(i => i.status === 'live').length;
-    let name, date;
-    if (k === RECENT) { name = 'Latest'; date = 'results'; }
-    else if (k === UPCOMING) { name = 'Next up'; date = 'fixtures'; }
-    else {
-      const d = FH.parseDate(k + 'T12:00:00Z');
-      name = k === today ? 'Today' : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()];
-      date = d.getDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getMonth()];
-    }
-    return '<button class="day-btn' + (k === hubDay ? ' active' : '') + (k === today ? ' today' : '') + (k === RECENT || k === UPCOMING ? ' bucket' : '') + '" data-day="' + k + '">' +
-      '<span class="day-name">' + name + '</span><span class="day-date">' + date + '</span>' +
-      '<span class="day-n">' + n + (lv ? ' · <span class="live-dot"></span>' : '') + '</span></button>';
-  }).join(''));
-  document.querySelectorAll('#date-strip .day-btn').forEach(b => b.addEventListener('click', () => { hubDay = b.dataset.day; renderScoreboard(); }));
-
-  const showDate = hubDay === RECENT || hubDay === UPCOMING;
-  const items = buckets[hubDay].slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || a.comp.localeCompare(b.comp));
-  const byComp = {};
-  items.forEach(it => (byComp[it.comp] = byComp[it.comp] || []).push(it));
-  const compOrder = INDEX.competitions.map(c => c.slug).filter(s => byComp[s]);
-  setHTML('scoreboard', compOrder.map(slug => {
-    const c = INDEX.competitions.find(x => x.slug === slug) || { name: slug };
-    return '<div class="sb-comp"><div class="sb-comp-head"><a href="#/' + esc(slug) + '/fixtures">' + esc(c.name) + '</a><span class="sb-country">' + esc(c.country || '') + '</span></div>' +
-      byComp[slug].map(it => scoreCard(it, slug, showDate)).join('') + '</div>';
-  }).join(''));
-  wireRowLinks('scoreboard');
-}
-
-function scoreCard(it, slug, showDate) {
-  const href = it.detail ? matchHref(it.id, slug) : '#/' + slug + '/fixtures';
-  const finished = it.status === 'finished' || it.status === 'live';
-  const model = it.model ? probBar(it.model, { small: true }) : '';
-  return '<div class="sb-card" data-href="' + esc(href) + '">' +
-    '<div class="sb-time">' + (showDate ? '<span class="sb-round">' + esc(fmtDate(it.date)) + '</span>' : '') + statusChip(it) + (it.round && it.stage !== 'league' ? '<span class="sb-round">' + esc(ROUND_LABELS[it.round] || it.round) + '</span>' : '') + '</div>' +
-    '<div class="sb-teams">' +
-      '<div class="sb-team"><a href="' + esc(teamHref(it.home, slug)) + '">' + crest(it.home, it.crests && it.crests[0]) + esc(it.home) + '</a><span class="sb-score">' + (finished ? it.hs : '') + '</span></div>' +
-      '<div class="sb-team"><a href="' + esc(teamHref(it.away, slug)) + '">' + crest(it.away, it.crests && it.crests[1]) + esc(it.away) + '</a><span class="sb-score">' + (finished ? it.as : '') + '</span></div>' +
-    '</div>' +
-    '<div class="sb-side">' + (finished
-      ? (it.xg ? '<span class="xg-line">xG ' + num(it.xg[0], 2) + ' – ' + num(it.xg[1], 2) + '</span>' : '') + (it.detail ? '<a href="' + esc(href) + '">Analysis →</a>' : '')
-      : model) + '</div>' +
-    '</div>';
-}
-
-function renderHubLeaders() {
-  const L = (HUB || {}).leaders || {};
-  const block = (rows, label, fmt, extraKey, extraLabel) => {
-    if (!(rows || []).length) return '';
-    return '<div class="mini-card"><div class="mini-head">' + esc(label) + '</div>' + rows.slice(0, 8).map((p, i) =>
-      '<div class="mini-row"><span class="mini-rank">' + (i + 1) + '</span><span class="mini-name">' + playerLink(p.id, p.name, p.comp) +
-      '<span class="mini-sub">' + esc(p.team) + ' · ' + esc(p.comp_name) + '</span></span><span class="mini-val">' + fmtMetric(p.value, fmt) +
-      (extraKey && p[extraKey] !== undefined ? '<span class="mini-extra">' + extraLabel + ' ' + num(p[extraKey], 2) + '</span>' : '') + '</span></div>').join('') + '</div>';
-  };
-  const html = [block(L.goals, 'Goals', 'int', 'xg', 'xG'), block(L.assists, 'Assists', 'int', 'xa', 'xA'), block(L.rating, 'Rating (qualified)', '2', 'minutes', 'min')].filter(Boolean).join('');
-  setHTML('hub-leaders', html ? '<div class="mini-grid">' + html + '</div>' : '<div class="muted">No player data yet.</div>');
-}
-
-function renderCompetitionCards(comps) {
-  setHTML('home-grid', comps.map(c => {
-    const first = (c.tabs || ['overview'])[0];
-    const chips = [];
-    if (!c.ok) chips.push('<span class="chip bad">unavailable</span>');
-    if (c.phase === 'pre') chips.push('<span class="chip">' + esc(c.reason && c.reason.length < 40 ? c.reason : 'not started') + '</span>');
-    if (c.complete) chips.push('<span class="chip">complete</span>');
-    if (c.synthetic) chips.push('<span class="chip warn">sample data</span>');
-    if (c.store_fresh === false) chips.push('<span class="chip warn">stale</span>');
-    const frac = c.games_total ? Math.min(1, (c.games_played || 0) / c.games_total) : 0;
-    const nxt = c.next ? '<div class="comp-next">Next: ' + esc(fmtDate(c.next.date)) + ' ' + esc(fmtTime(c.next.date)) + ' · ' + esc(c.next.home) + ' v ' + esc(c.next.away) + '</div>' : '';
-    const lead = c.leader ? '<span>Leader <strong>' + esc(c.leader.team) + '</strong> ' + c.leader.pts + ' pts</span>' : '';
-    const scorer = c.top_scorer ? '<span>Top scorer <strong>' + esc(c.top_scorer.name) + '</strong> ' + c.top_scorer.goals + '</span>' : '';
-    return '<a class="comp-card' + (c.ok ? '' : ' off') + '" href="#/' + esc(c.slug) + '/' + first + '">' +
-      '<div class="comp-country">' + esc(c.country) + '</div>' +
-      '<div class="comp-name">' + esc(c.name) + '</div>' +
-      (c.ok
-        ? (c.favourite ? '<div class="comp-fav">' + esc(c.favourite_label || 'Title') + ' favourite: <strong>' + esc(c.favourite) +
-            '</strong> <span class="p">' + pct(c.p_favourite) + '</span></div>' : '<div class="comp-fav">' + esc(c.reason || '') + '</div>') +
-          '<div class="progress"><div style="width:' + (frac * 100).toFixed(1) + '%"></div></div>' +
-          '<div class="comp-meta">' + lead + scorer + '</div>' + nxt +
-          '<div class="comp-meta"><span>' + esc(c.season || '') + '</span><span>' + (c.games_played || 0) + '/' + (c.games_total || 0) + ' played</span>' + chips.join('') + '</div>'
-        : '<div class="comp-fav">' + esc(c.reason || 'No data yet') + '</div><div class="comp-meta">' + chips.join('') + '</div>') +
-      '</a>';
-  }).join(''));
-}
+// The hub itself lives in hub.js (loaded last); this module keeps the club, player and match-adjacent pages.
 
 // ── club page ──────────────────────────────────────────────────────────────
 
@@ -159,6 +30,187 @@ function findTeamBySlug(param) {
 function pageHeader(crestHtml, title, sub, chips) {
   return '<div class="page-header"><div class="ph-crest">' + crestHtml + '</div><div class="ph-body"><h2>' + title + '</h2>' +
     '<div class="ph-sub">' + sub + '</div>' + (chips ? '<div class="ph-chips">' + chips + '</div>' : '') + '</div></div>';
+}
+
+// ── club page: analytics cards (from analytics.json) ───────────────────────
+
+const RADAR_TEAM = [
+  { key: 'possession', label: 'Possession' }, { key: 'field_tilt', label: 'Field tilt' }, { key: 'ppda', label: 'Pressing' },
+  { key: 'shot_quality', label: 'Shot quality' }, { key: 'xg_for', label: 'xG for' }, { key: 'xg_against', label: 'Defence' },
+  { key: 'aerial_pct', label: 'Aerials' }, { key: 'big_chances', label: 'Big chances' }
+];
+const SQUAD_COLS = {
+  G: [['saves_90', 'Saves/90'], ['save_pct', 'Save %'], ['goals_prevented_90', 'Prevented/90'], ['conceded_90', 'Conceded/90'], ['sweeper_90', 'Sweeper/90'], ['pass_pct', 'Pass %']],
+  D: [['padj_tkl_int_90', 'PAdj Tkl+Int/90'], ['clearances_90', 'Clearances/90'], ['aerial_pct', 'Aerial %'], ['duel_pct', 'Duel %'], ['pass_pct', 'Pass %'], ['prog_carries_90', 'Prog. carries/90']],
+  M: [['npxg_xa_90', 'npxG+xA/90'], ['key_passes_90', 'Key passes/90'], ['pass_pct', 'Pass %'], ['prog_carries_90', 'Prog. carries/90'], ['padj_tkl_int_90', 'PAdj Tkl+Int/90'], ['loss_per_100', 'Lost/100 touches']],
+  F: [['npxg_90', 'npxG/90'], ['xa_90', 'xA/90'], ['shots_90', 'Shots/90'], ['xg_per_shot', 'xG/shot'], ['dribbles_90', 'Dribbles/90'], ['finishing', 'Finishing']]
+};
+const SQUAD_POS_LABELS = { G: 'Goalkeepers', D: 'Defenders', M: 'Midfielders', F: 'Forwards' };
+const CLUB_EXTREMES = [
+  ['rating', 'Rating', '2', false, 'all'], ['g_minus_xg', 'Goals − xG', '2', false, 'out'], ['npxg_xa_90', 'npxG + xA /90', '2', false, 'out'],
+  ['padj_tkl_int_90', 'PAdj tackles + interceptions /90', '2', false, 'out'], ['loss_per_100', 'Possession lost per 100 touches', '1', true, 'out']
+];
+const SET_PIECE_TILES = [
+  ['corners', 'Corners', 'per match', 'corners', '1'], ['big_chances', 'Big chances', 'per match', 'big_chances', '2'], ['big_chances_missed', 'Big chances missed', 'per match', null, '2'],
+  ['fouls', 'Fouls', 'per match', 'fouls', '1'], ['cards', 'Cards', 'yellow + red per match', 'cards', '2'], ['km', 'Distance', 'km per match', 'km', '1'], ['sprints', 'Sprints', 'per match', 'sprints', 'int']
+];
+
+function isNumV(v) { return v !== null && v !== undefined && !isNaN(v); }
+function posBadgeHtml(pos) { return pos ? '<span class="pos-badge pos-' + esc(pos) + '">' + esc(pos) + '</span>' : ''; }
+
+/* The seven cards' shells; the content is filled by renderClubAnalytics once
+   the page is in the DOM (Plotly needs the elements). */
+function clubAnalyticsHTML(team) {
+  return '<div class="grid-2">' +
+    '<div class="card"><div class="card-header">Where they rank <span class="card-sub">Every team metric: value, percentile and rank in the competition.</span></div><div id="tp-rank"></div></div>' +
+    '<div class="card"><div class="card-header">Style radar <span class="card-sub">Percentiles against the competition; the grey ring is the competition median. Pressing and Defence are turned so bigger is better.</span></div><div id="tp-radar" style="height:400px"></div>' +
+    '<div class="card-header">Points and expected points by match <span class="card-sub">Bars = points; line = xPts from each match\'s xG; dotted = cumulative luck.</span></div><div id="tp-xpts" style="height:260px"></div></div>' +
+    '</div>' +
+    '<div class="card"><div class="card-header">Squad by position <span class="card-sub">Everyone with a minute; six headline rates per position, pills = percentile against positional peers. Click a header to sort.</span></div><div id="tp-squad-pos"></div></div>' +
+    '<div class="card"><div class="card-header">Best XI of the club <span class="card-sub">The highest-rated keeper, four defenders, three midfielders and three forwards (180+ minutes where possible); colour = rating.</span></div>' +
+    '<div class="tp-xi-wrap"><div id="tp-best-xi" class="an-pitch"></div><div id="tp-topbot"></div></div></div>' +
+    '<div class="card"><div class="card-header">Set pieces and discipline <span class="card-sub">Per match, with the club\'s percentile in the competition.</span></div><div id="tp-setpieces"></div></div>';
+}
+
+function renderClubAnalytics(team) {
+  const d = D();
+  const an = d.analytics || null;
+  const info = an && an.teams ? an.teams[team] : null;
+  const profile = (info && info.profile) || {};
+  const hasProfile = Object.keys(profile).length > 0;
+  const tmetrics = (an && an.team_metrics) || [];
+  const perfTeams = ((an || {}).performers || {}).teams || {};
+  const live = d.players_live || {};
+  const players = (live.players || []).filter(p => p.team === team);
+  const catalogue = live.metrics || [];
+  const fmtOf = key => { const m = catalogue.find(x => x.key === key); return m ? m.fmt : '2'; };
+  const none = msg => '<div class="muted">' + esc(msg) + '</div>';
+  const noAn = !an ? 'No analytics for this competition yet.' : !info ? 'No analytics for ' + team + ' yet.' : 'No season profile for ' + team + ' yet.';
+
+  // Where they rank.
+  if (hasProfile) {
+    const keys = tmetrics.map(m => m.key).filter(k => profile[k]);
+    Object.keys(profile).forEach(k => { if (keys.indexOf(k) < 0) keys.push(k); });
+    const groups = [];
+    keys.forEach(k => {
+      const m = tmetrics.find(x => x.key === k) || { label: k, group: 'Other', fmt: '2' };
+      let g = groups.find(x => x.name === (m.group || 'Other'));
+      if (!g) { g = { name: m.group || 'Other', items: [] }; groups.push(g); }
+      const ranking = (perfTeams[k] || {}).ranking || [];
+      const idx = ranking.findIndex(r => r.team === team);
+      g.items.push('<div class="rank-row" title="' + esc(m.desc || '') + '"><span class="rank-label">' + esc(m.label) + (m.lower ? ' <span class="muted-inline">↓</span>' : '') + '</span>' +
+        '<span class="rank-val">' + fmtMetric(profile[k].v, m.fmt) + '</span><span>' + pctPill(profile[k].pct) + '</span>' +
+        '<span class="rank-pos">' + (idx >= 0 ? '<strong>#' + (idx + 1) + '</strong> of ' + ranking.length : '') + '</span></div>');
+    });
+    setHTML('tp-rank', '<div class="rank-groups">' + groups.map(g => '<div class="rank-group-head">' + esc(g.name) + '</div>' + g.items.join('')).join('') + '</div>');
+  } else setHTML('tp-rank', none(noAn));
+
+  // Style radar: the club against the competition median.
+  const isGood = key => (typeof FH.teamPctIsGoodness === 'function') ? FH.teamPctIsGoodness(key) : true;
+  const axes = RADAR_TEAM.filter(ax => profile[ax.key] && isNumV(profile[ax.key].pct));
+  if (axes.length >= 3) {
+    const pctMap = {}, median = {};
+    axes.forEach(ax => {
+      const m = tmetrics.find(x => x.key === ax.key) || {};
+      const raw = profile[ax.key].pct;
+      // Lower-is-better axes read bigger = better: invert unless the payload already did.
+      pctMap[ax.key] = (m.lower && !isGood(ax.key)) ? 100 - raw : raw;
+      median[ax.key] = 50;
+    });
+    renderRadar('tp-radar', axes, [{ name: team, pct: pctMap }, { name: 'Competition median', pct: median }]);
+  } else setHTML('tp-radar', none(hasProfile ? 'Not enough team metrics for a radar yet.' : noAn));
+
+  // Points and expected points by match.
+  const rds = ((info || {}).rounds || []).filter(r => isNumV(r.pts));
+  if (rds.length) {
+    const x = rds.map((r, i) => (r.round === null || r.round === undefined) ? i + 1 : r.round);
+    let cum = 0;
+    const luck = rds.map(r => { cum += (r.pts || 0) - (isNumV(r.xpts) ? r.xpts : 0); return cum; });
+    plot('tp-xpts', [
+      { type: 'bar', name: 'Points', x: x, y: rds.map(r => r.pts), marker: { color: rds.map(r => r.pts === 3 ? C.green : r.pts === 1 ? C.text3 : C.red), opacity: 0.8 },
+        customdata: rds.map(r => (isNumV(r.xg) ? num(r.xg, 2) + '–' + num(r.xga, 2) : '')), hovertemplate: 'Round %{x}: %{y} pts · xG %{customdata}<extra></extra>' },
+      { type: 'scatter', mode: 'lines+markers', name: 'xPts', x: x, y: rds.map(r => isNumV(r.xpts) ? r.xpts : null), line: { color: C.blue, width: 2 }, marker: { size: 6 }, hovertemplate: 'Round %{x}: %{y:.2f} xPts<extra></extra>' },
+      { type: 'scatter', mode: 'lines', name: 'Cumulative luck', x: x, y: luck, yaxis: 'y2', line: { color: C.yellow, width: 1.5, dash: 'dot' }, hovertemplate: 'Round %{x}: %{y:+.1f} pts above xPts so far<extra></extra>' }
+    ], layout({
+      showlegend: true, legend: { orientation: 'h', y: 1.18, font: { color: C.text2 } }, margin: { l: 40, r: 40, t: 30, b: 35 },
+      xaxis: { title: 'Round', dtick: 1 }, yaxis: { range: [0, 3.2], dtick: 1 },
+      yaxis2: { overlaying: 'y', side: 'right', title: 'luck', gridcolor: 'rgba(0,0,0,0)', zerolinecolor: '#30363d', tickfont: { color: C.yellow } }
+    }));
+  } else setHTML('tp-xpts', none(an ? 'No expected points by match for ' + team + ' yet.' : noAn));
+
+  // Squad by position.
+  const withMin = players.filter(p => (p.minutes || 0) >= 1).sort((a, b) => (b.minutes || 0) - (a.minutes || 0));
+  if (withMin.length) {
+    const blocks = ['G', 'D', 'M', 'F'].map(pos => {
+      const group = withMin.filter(p => (pos === 'G' ? p.is_gk : (!p.is_gk && (p.position === pos || (pos === 'M' && ['D', 'F'].indexOf(p.position) < 0)))));
+      if (!group.length) return '';
+      const cols = SQUAD_COLS[pos];
+      const cell = (p, key, fmt) => { const pc = p.pct || {}; return { v: isNumV(p[key]) ? p[key] : -999, html: (isNumV(p[key]) ? fmtMetric(p[key], fmt) : '—') + ' ' + (pc[key] !== undefined ? pctPill(pc[key]) : ''), align: 'right' }; };
+      return '<div class="squad-pos-head">' + SQUAD_POS_LABELS[pos] + ' · ' + group.length + '</div>' + tableHTML([
+        { label: 'Player' }, { label: 'Pos', align: 'center' }, { label: 'Age', align: 'right' }, { label: 'Apps', align: 'right', title: 'Appearances (starts)' }, { label: 'Min', align: 'right' },
+        { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' }, { label: 'Rating', align: 'right' }
+      ].concat(cols.map(c => ({ label: c[1], align: 'right', title: (catalogue.find(x => x.key === c[0]) || {}).desc || '' }))), group.map(p => ({ cells: [
+        { v: p.name, html: playerLink(p.player_id, p.name) }, { v: p.position || '', html: posBadgeHtml(p.position), align: 'center' },
+        { v: p.age || 0, html: p.age || '—', align: 'right' }, { v: p.matches || 0, html: (p.matches || 0) + ' <span class="muted-inline">(' + (p.starts || 0) + ')</span>', align: 'right' },
+        { v: p.minutes || 0, align: 'right' }, { v: p.goals || 0, align: 'right' }, { v: p.assists || 0, align: 'right' },
+        { v: p.xg || 0, html: num(p.xg, 2), align: 'right' }, { v: p.xa || 0, html: num(p.xa, 2), align: 'right' },
+        { v: p.rating || 0, html: isNumV(p.rating) ? '<span style="color:' + (FH.ratingColor ? FH.ratingColor(p.rating) : 'inherit') + ';font-weight:600">' + num(p.rating, 2) + '</span>' : '—', align: 'right' }
+      ].concat(cols.map(c => cell(p, c[0], fmtOf(c[0])))) })), { compact: true });
+    }).join('');
+    setHTML('tp-squad-pos', blocks || none('No squad data yet.'));
+    document.querySelectorAll('#tp-squad-pos table').forEach(t => FH.makeSortable(t));
+  } else setHTML('tp-squad-pos', none('No player data for ' + team + ' yet.'));
+
+  // Best XI of the club, drawn with the Analytics tab's pitch (analytics.js loads after this module).
+  if (typeof FH.drawXI !== 'function') setHTML('tp-best-xi', none('The formation drawing did not load.'));
+  else if (!players.length) setHTML('tp-best-xi', none('No player data for ' + team + ' yet.'));
+  else {
+    const rated = players.filter(p => isNumV(p.rating) && (p.minutes || 0) > 0);
+    let pool = rated.filter(p => p.minutes >= 180);
+    if (pool.length < 11) pool = rated;
+    const byRating = (a, b) => b.rating - a.rating;
+    const gk = pool.filter(p => p.is_gk).sort(byRating).slice(0, 1);
+    const out = pool.filter(p => !p.is_gk).sort(byRating);
+    const want = { D: 4, M: 3, F: 3 };
+    let chosen = [];
+    ['D', 'M', 'F'].forEach(pos => { chosen = chosen.concat(out.filter(p => p.position === pos).slice(0, want[pos])); });
+    out.forEach(p => { if (chosen.length < 10 && chosen.indexOf(p) < 0) chosen.push(p); });
+    const counts = { D: 0, M: 0, F: 0 };
+    chosen.forEach(p => { counts[counts[p.position] !== undefined ? p.position : 'M']++; });
+    const formation = ['D', 'M', 'F'].map(k => counts[k]).filter(n => n > 0).join('-');
+    const line = p => ({ id: p.player_id, name: p.name, team: p.team, pos: p.is_gk ? 'G' : (p.position || 'M'), rt: p.rating, g: p.goals, a: p.assists, xg: p.xg, xa: p.xa, min: p.minutes });
+    const xi = gk.map(line).concat(chosen.sort((a, b) => ['D', 'M', 'F'].indexOf(a.position) - ['D', 'M', 'F'].indexOf(b.position)).map(line));
+    if (xi.length) FH.drawXI('tp-best-xi', xi, formation);
+    else setHTML('tp-best-xi', none('No rated players yet.'));
+  }
+
+  // Top and bottom at the club.
+  const qualified = players.filter(p => p.qualified);
+  if (qualified.length) {
+    const blocks = CLUB_EXTREMES.map(([key, label, fmt, lower, scope]) => {
+      const rows = qualified.filter(p => isNumV(p[key]) && (scope === 'all' || !p.is_gk)).sort((a, b) => lower ? a[key] - b[key] : b[key] - a[key]);
+      if (rows.length < 2) return '';
+      const row = p => '<div class="tb-row"><span class="tb-name">' + playerLink(p.player_id, p.name) + ' ' + posBadgeHtml(p.position) + '</span>' +
+        '<span class="tb-val">' + fmtMetric(p[key], fmt) + '</span><span class="tb-pct">' + pctPill((p.pct || {})[key]) + '</span></div>';
+      const best = rows.slice(0, 3), worst = rows.slice(-3).reverse().filter(p => best.indexOf(p) < 0);
+      return '<div class="tb-block"><div class="tb-head">' + esc(label) + (lower ? ' <span class="muted-inline">(lower is better)</span>' : '') + '</div>' +
+        '<div class="tb-sub">Best</div>' + best.map(row).join('') + (worst.length ? '<div class="tb-sub">Worst</div>' + worst.map(row).join('') : '') + '</div>';
+    }).filter(Boolean);
+    setHTML('tp-topbot', blocks.length ? '<div class="tb-grid">' + blocks.join('') + '</div>' : none('Not enough qualified players yet.'));
+  } else setHTML('tp-topbot', none('No player at ' + team + ' has reached ' + (live.minutes_floor || 0) + ' minutes yet.'));
+
+  // Set pieces and discipline.
+  const season = (((d.team_stats || {}).teams || {})[team] || {}).season || {};
+  const tiles = SET_PIECE_TILES.map(([key, label, sub, tsKey, fmt]) => {
+    const m = tmetrics.find(x => x.key === key) || {};
+    let v = null, p = null;
+    if (profile[key] && isNumV(profile[key].v)) { v = profile[key].v; p = profile[key].pct; }
+    else if (tsKey === 'cards' && (isNumV(season.yellow) || isNumV(season.red))) v = (season.yellow || 0) + (season.red || 0);
+    else if (tsKey && isNumV(season[tsKey])) { v = season[tsKey]; p = (season.pct || {})[tsKey]; }
+    if (!isNumV(v)) return '';
+    return statTile(label, fmtMetric(v, m.fmt || fmt) + ' ' + (isNumV(p) ? pctPill(p) : ''), sub);
+  }).filter(Boolean);
+  setHTML('tp-setpieces', tiles.length ? '<div class="kpi-grid pad" style="margin-bottom:0">' + tiles.join('') + '</div>' : none(hasProfile ? 'No set-piece or discipline figures yet.' : noAn));
 }
 
 function renderTeamPage(param) {
@@ -199,12 +251,17 @@ function renderTeamPage(param) {
     '<div class="card-header">Form <span class="card-sub">Points per match, five-match rolling.</span></div><div id="tp-form" style="height:220px"></div></div>';
   html += '</div>';
 
+  // Analytics: rankings, style, expected points, the squad by position, the
+  // best XI, extremes and set pieces (analytics.json; each card degrades alone).
+  html += clubAnalyticsHTML(team);
+
   // Results and fixtures.
   const fx = ((d.fixtures || {}).matches || []).filter(f => f.home === team || f.away === team);
   html += '<div class="card"><div class="card-header">Matches <span class="card-sub">Results with xG; fixtures with the model\'s line.</span></div><div id="tp-matches"></div></div>';
   // Squad.
   html += '<div class="card"><div class="card-header">Squad <span class="card-sub">Season lines; percentile pills against positional peers.</span></div><div id="tp-squad"></div></div>';
   pane.innerHTML = html;
+  try { renderClubAnalytics(team); } catch (err) { console.error('club analytics failed', err); }
 
   // Charts.
   const rows = (ts.matches || []).slice().reverse();
@@ -418,10 +475,9 @@ function renderPlayerPage(param) {
 // Team-stat sheet rows shown on a match page, in order, with labels.
 // ── wiring ─────────────────────────────────────────────────────────────────
 
-Object.assign(FH.RENDERERS, { home: renderHome });
 Object.assign(FH.PAGES, { team: renderTeamPage, player: renderPlayerPage });   // match: match.js
 Object.assign(FH.PAGE_NEEDS, {
-  team: ['probs', 'strength', 'table', 'zones', 'team_stats', 'fixtures', 'players_live'],
+  team: ['probs', 'strength', 'table', 'zones', 'team_stats', 'fixtures', 'players_live', 'analytics'],
   player: ['players_live'],
   match: ['fixtures']
 });

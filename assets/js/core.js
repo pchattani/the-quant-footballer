@@ -42,13 +42,13 @@ const C = {
 const PALETTE = [C.blue, C.green, C.orange, C.purple, C.red, C.yellow, '#79c0ff', '#d2a8ff'];
 
 // Pages above the competitions, by route segment -> pane / renderer name.
-const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', 'ballon-dor': 'ballondor', compare: 'compare', player: 'career', disclaimer: 'disclaimer', lab: 'lab' };
+const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', 'ballon-dor': 'ballondor', compare: 'compare', player: 'career', disclaimer: 'disclaimer', lab: 'lab', glossary: 'glossary', methodology: 'methodologysite' };
 const GLOBAL_TABS = ['home', 'clubs', 'nations', 'leaders', 'lab', 'ballondor', 'compare'];
-const GLOBAL_ROUTE = { clubs: '#/clubs', nations: '#/nations', leaders: '#/leaders', lab: '#/lab', ballondor: '#/ballon-dor', compare: '#/compare' };
+const GLOBAL_ROUTE = { clubs: '#/clubs', nations: '#/nations', leaders: '#/leaders', lab: '#/lab', ballondor: '#/ballon-dor', compare: '#/compare', glossary: '#/glossary', methodologysite: '#/methodology' };
 const FAMILY_LABELS = { cup: 'Continental & world', domestic: 'National cups', super: 'Super cups', international: 'National teams' };
 
 const TAB_LABELS = {
-  home: 'Hub', disclaimer: 'Disclaimer & terms', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', lab: 'Player lab', ballondor: "Ballon d'Or", compare: 'Compare',
+  home: 'Hub', disclaimer: 'Disclaimer & terms', glossary: 'Glossary', methodologysite: 'Methodology', analytics: 'Analytics', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', lab: 'Player lab', ballondor: "Ballon d'Or", compare: 'Compare',
   overview: 'Overview', table: 'Table', fixtures: 'Fixtures & Results', zones: 'Zones',
   bracket: 'Playoffs', anual: 'Tabla Anual', relegation: 'Relegation', probs: 'Probabilities',
   power: 'Power Rankings', team: 'Clubs', players: 'Players', matches: 'Matches', market: 'Market',
@@ -74,8 +74,8 @@ const CORE = {
 const NEEDS = {
   overview: ['meta', 'table', 'probs', 'fixtures', 'players_live', 'zones', 'bracket'],
   table: ['table'], fixtures: ['fixtures'], zones: ['zones'], bracket: ['bracket'], anual: ['anual'],
-  relegation: ['relegation'], probs: ['probs'], power: ['strength'],
-  team: ['probs', 'strength', 'relegation', 'table', 'zones', 'team_stats'],
+  relegation: ['relegation'], probs: ['probs'], power: ['strength'], analytics: ['analytics', 'players_live', 'team_stats', 'strength', 'table', 'fixtures'],
+  team: ['probs', 'strength', 'relegation', 'table', 'zones', 'team_stats', 'analytics', 'players_live', 'fixtures'],
   players: ['players_live', 'player_leaders', 'shots'], matches: ['matches'],
   market: ['market_odds'], history: ['history'], methodology: ['meta', 'table', 'bracket']
 };
@@ -84,7 +84,7 @@ const FILES = {
   probs: 'probs.json', bracket: 'bracket.json', anual: 'anual.json', relegation: 'relegation.json',
   strength: 'strength.json', players_live: 'players_live.json', player_leaders: 'player_leaders.json',
   shots: 'shots.json', matches: 'matches.json', market_odds: 'market_odds.json',
-  history: 'history.json', fixtures: 'fixtures.json', team_stats: 'team_stats.json'
+  history: 'history.json', fixtures: 'fixtures.json', team_stats: 'team_stats.json', analytics: 'analytics.json'
 };
 const FALLBACK = {
   meta: {}, teams: { teams: {} }, table: null, zones: null, probs: { teams: [] },
@@ -92,7 +92,8 @@ const FALLBACK = {
   anual: null, relegation: null, strength: { rows: [], elo_history: {}, notes: {} },
   players_live: { ok: false, players: [], metrics: [] }, player_leaders: { top_scorer: [], live: [] },
   shots: { players: {} }, matches: { matches: [] }, market_odds: { ok: false },
-  history: { snapshots: [] }, fixtures: { matches: [] }, team_stats: { teams: {}, metrics: [] }
+  history: { snapshots: [] }, fixtures: { matches: [] }, team_stats: { teams: {}, metrics: [] },
+  analytics: { rounds: [], season_xi: {}, performers: { players: {}, teams: {} }, team_metrics: [] }
 };
 
 // ── formatting helpers ─────────────────────────────────────────────────────

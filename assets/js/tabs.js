@@ -1005,63 +1005,28 @@ function renderHistory() {
 
 // ── methodology ────────────────────────────────────────────────────────────
 
+/* The full methodology document lives in docs.js (FH.renderMethodologyDoc); the
+   competition tab prepends a "This competition" card built from meta, table and
+   bracket, then the same document the site-wide #/methodology page shows. */
 function renderMethodology() {
-  const m = D().meta || {};
-  const cal = m.calibration || {};
-  const model = m.model || {};
-  const k = kind();
-  setHTML('method-calibration', tableHTML([{ label: 'Parameter', sortable: false }, { label: 'Measured', sortable: false }], [
-    { cells: [{ v: 'Draw rate' }, { v: pct(cal.draw_rate) }] },
-    { cells: [{ v: 'Goals per team per match' }, { v: num(cal.mean_goals, 2) }] },
-    { cells: [{ v: 'Home wins' }, { v: pct(cal.home_win_rate) }] }
-  ]));
-  let format = '';
-  if (k === 'liga') {
-    format = '<ul><li>30 clubs in two zones of 15. Each club plays 16 matches: 14 inside its zone plus 2 interzone.</li>' +
-      '<li>The top 8 of each zone reach the Round of 16. Round of 16, quarter-finals, semi-finals and the final are single matches.</li>' +
-      '<li>The Tabla Anual adds Apertura and Clausura. Its leader is Campeón de Liga and it decides most continental berths.</li>' +
-      '<li>Two clubs go down: the worst three-season promedio and the last-placed club in the Tabla Anual.</li></ul>';
-  } else {
-    const t = D().table || {};
-    const bands = t.bands || [];
-    format = '<ul>' +
-      '<li>' + (t.conferences ? Object.keys(t.conferences).length + ' ' + ((t.group_label || 'conference') + 's').toLowerCase() : 'One table') + (t.matches_per_team ? ', ' + t.matches_per_team + ' matches per club' : '') + '.</li>' +
-      bands.map(b => '<li>' + esc(b.label) + ': ' + (b.first === b.last ? 'position ' + b.first : 'positions ' + b.first + '–' + b.last) + (t.conferences ? ' in each ' + (t.group_label || 'conference').toLowerCase() : '') + '.</li>').join('') +
-      (t.h2h_tiebreak ? '<li>This league breaks ties on points by head-to-head record. The simulation uses goal difference instead — head-to-head cannot be vectorised — which only matters for clubs finishing level on points.</li>' : '') +
-      '</ul>';
+  const el = document.getElementById('methodology-doc');
+  if (!el) return;
+  if (typeof FH.renderMethodologyDoc !== 'function') {
+    el.innerHTML = '<div class="card"><div class="muted">The methodology module did not load.</div></div>';
+    return;
   }
-  setHTML('method-format', format);
-  if (k === 'cup') {
-    setHTML('method-notes', '<p>' + esc((D().bracket || {}).note || '') + '</p><p>Cup matches are fitted together with every league the site follows, each club under its own league, so a club\'s strength comes from all its matches and clubs from different leagues sit on one scale. Clubs from leagues the site does not follow start at the pool\'s average and move only on their cup results — their probabilities are the least certain on the page.</p>');
-    return finishMethodology(m, model);
-  }
-  if (k === 'playoff') {
-    setHTML('method-notes', '<p>' + esc((D().bracket || {}).note || '') + '</p>');
-    return finishMethodology(m, model);
-  }
-  setHTML('method-notes', k === 'conference' ? '<p>The MLS Cup playoff is simulated inside the same run: a single-match wild card, a best-of-three Round One with the higher seed hosting games one and three, re-seeding after Round One, and single matches hosted by the higher seed thereafter. Ties already decided in the postseason are taken as played.</p>' : '');
-  finishMethodology(m, model);
-}
-
-function finishMethodology(m, model) {
-  setHTML('method-model', tableHTML([{ label: 'Setting', sortable: false }, { label: 'Value', sortable: false }], [
-    { cells: [{ v: 'Home advantage (Elo)' }, { v: (model.elo_home_advantage || 0) + ' points' }] },
-    { cells: [{ v: 'Dixon-Coles weight' }, { v: String(model.dc_weight === undefined ? '—' : model.dc_weight) }] },
-    { cells: [{ v: 'Time decay' }, { v: String(model.dc_xi === undefined ? '—' : model.dc_xi) + ' / day' }] },
-    { cells: [{ v: 'Training matches' }, { v: String(m.training_matches || 0) }] },
-    { cells: [{ v: 'Parameter set' }, { v: ({ pooled: 'pooled fit across all leagues', global: 'shared across leagues', 'per-league': 'this league only', 'default': 'defaults (untuned)', none: 'no model yet' })[model.params_method] || String(model.params_method || '—') }] },
-    { cells: [{ v: 'Simulations' }, { v: (m.n_sims || 0).toLocaleString('en-US') }] },
-    { cells: [{ v: 'Matches with player data' }, { v: String(m.detail_matches || 0) + (m.sheet_matches !== undefined ? ' (' + m.sheet_matches + ' with the team-stat sheet)' : '') }] }
-  ]));
+  const d = D();
+  FH.renderMethodologyDoc(el, { competition: { comp: comp() || {}, kind: kind(), meta: d.meta || {}, table: d.table || null, bracket: d.bracket || null } });
 }
 
 // ── wiring ─────────────────────────────────────────────────────────────────
 
+function renderAnalytics() { if (FH.renderAnalytics) FH.renderAnalytics(); }   // the tab itself lives in analytics.js, loaded later
 const RENDERERS = {
   overview: renderOverview, table: renderTable, fixtures: renderFixtures, zones: renderZones, bracket: renderBracket,
   anual: renderAnual, relegation: renderRelegation, probs: renderProbs, power: renderPower,
   team: renderTeams, players: renderPlayers, matches: renderMatches, market: renderMarket,
-  history: renderHistory, methodology: renderMethodology
+  history: renderHistory, methodology: renderMethodology, analytics: renderAnalytics
 };
 Object.assign(FH.RENDERERS, RENDERERS);
 FH.fixtureRow = fixtureRow;
