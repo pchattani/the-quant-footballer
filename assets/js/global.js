@@ -338,12 +338,14 @@ function renderBallonDor() {
     // Next edition.
     const nx = b.next || {};
     setHTML('bd-next-sub', (nx.season || '') + ' · ' + esc(nx.note || ''));
+    // A projected candidate's league is a weight in the payload; its competition is the key's prefix.
+    const slugOf = c => typeof c.league === 'string' ? c.league : String(c.key || '').split(':')[0];
     setHTML('bd-next', (nx.candidates || []).length ? tableHTML([
       { label: '#', sortable: false }, { label: 'Player' }, { label: 'Club' }, { label: 'League' }, { label: 'Pos', align: 'center' }, { label: 'Model', align: 'right' },
       { label: 'P(title)', align: 'right' }, { label: 'P(UCL)', align: 'right' }, { label: 'G+A/90 adj.', align: 'right' }, { label: 'Rating', align: 'right' }, { label: 'Drivers', sortable: false }
     ], nx.candidates.map((c, i) => ({ cells: [
-      { v: i + 1, cls: 'pos-cell' }, { v: c.name, html: playerLink(c.id, c.name, c.league) }, { v: c.club, html: esc(c.club) },
-      { v: c.league, html: esc(((INDEX.competitions.find(x => x.slug === c.league) || {}).short_name) || c.league) },
+      { v: i + 1, cls: 'pos-cell' }, { v: c.name, html: playerLink(c.id, c.name, slugOf(c)) }, { v: c.club, html: esc(c.club) },
+      { v: slugOf(c), html: esc(((INDEX.competitions.find(x => x.slug === slugOf(c)) || {}).short_name) || slugOf(c)) + (typeof c.league === 'number' ? ' <span class="muted-inline" title="League weight in the model">' + num(c.league, 2) + '</span>' : '') },
       { v: c.position || '', html: '<span class="pos-badge pos-' + esc(c.position || '') + '">' + esc(c.position || '') + '</span>', align: 'center' },
       { v: c.model, html: '<strong>' + pct(c.model) + '</strong>', align: 'right' }, { v: c.p_title, html: pct(c.p_title), align: 'right' },
       { v: c.p_ucl, html: pct(c.p_ucl), align: 'right' }, { v: c.ga90, html: num(c.ga90, 2), align: 'right' }, { v: c.rating || 0, html: num(c.rating, 2), align: 'right' },
