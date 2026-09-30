@@ -925,14 +925,19 @@ function renderMarket() {
   const m = D().market_odds || {};
   const sub = document.getElementById('market-sub');
   sub.textContent = m.ok === false ? 'Odds could not be refreshed.' : '';
-  setHTML('market-explainer', '<p>Bookmaker prices carry a margin: implied probabilities sum to more than one. Everything here is de-vigged, so a gap against the model is a real gap and not the book\'s cut.</p><p>Edge is relative: two percentage points do not mean the same thing at 5% as at 50%. The Fixtures tab carries the model\'s fair odds for every match whether or not a bookmaker price is available.</p>');
+  const SRC = { polymarket: 'Polymarket', kalshi: 'Kalshi' };
+  const srcNames = (m.sources || []).map(x => SRC[x] || 'bookmakers');
+  setHTML('market-explainer', '<p>Prices come from the prediction markets Polymarket and Kalshi (their public data; no bets are placed or offered here)' +
+    ((m.sources || []).some(x => !SRC[x]) ? ' and from bookmakers via The Odds API' : '') + '. A market price is the midpoint of the best bid and ask. ' +
+    'Each source is de-vigged (its three prices rescaled to sum to one) and the sources are pooled, so a gap against the model is a real disagreement, not a margin.</p>' +
+    '<p>Edge is relative: two percentage points do not mean the same thing at 5% as at 50%. Markets usually list a matchday about a week ahead; the Fixtures tab carries the model&rsquo;s fair odds for every match regardless.</p>');
   const matches = (m.matches || {}).fixtures || [];
   if (!matches.length) {
-    setHTML('market-matches', '<div class="muted">No match odds available. Set ODDS_API_KEY in the build environment to fill this tab.</div>');
+    setHTML('market-matches', '<div class="muted pad">No market lists these fixtures yet. Polymarket and Kalshi usually open a matchday about a week before it.</div>');
   } else {
     const minEdge = (m.matches || {}).min_edge || 0.03;
     setHTML('market-matches', tableHTML([
-      { label: 'Match' }, { label: 'Books', align: 'right' }, { label: 'Model H/D/A', align: 'center', sortable: false },
+      { label: 'Match' }, { label: 'Sources', align: 'right', title: 'How many markets price this match' }, { label: 'Model H/D/A', align: 'center', sortable: false },
       { label: 'Market H/D/A', align: 'center', sortable: false }, { label: 'Best', align: 'center' }, { label: 'Edge', align: 'right' }
     ], matches.map(f => {
       const trio = o => ['home', 'draw', 'away'].map(k => pct(o[k], 0)).join(' / ');
@@ -945,7 +950,7 @@ function renderMarket() {
       ] };
     })));
     sortableIn('market-matches');
-    sub.textContent = matches.length + ' matches · ' + ((m.matches || {}).actionable || 0) + ' with edge over ' + pct(minEdge, 0);
+    sub.textContent = matches.length + ' matches · ' + ((m.matches || {}).actionable || 0) + ' with edge over ' + pct(minEdge, 0) + (srcNames.length ? ' · ' + Array.from(new Set(srcNames)).join(', ') : '');
   }
   const out = m.outrights || {};
   if (!out.available || !(out.teams || []).length) { setHTML('market-outrights', '<div class="muted">No outright market available for this competition.</div>'); return; }
