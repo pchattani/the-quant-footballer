@@ -559,3 +559,7 @@ a.team-link.rev { flex-direction: row-reverse; }
 .sheet-cols .ts-row, .sheet-cols .ts-group { break-inside: avoid; }
 @media (max-width: 960px) { .sheet-cols { column-count: 1; } }
 .warn-banner { margin: 6px 14px; padding: 8px 12px; border: 1px solid #9e6a03; border-radius: 6px; background: rgba(210,153,34,0.08); color: #e3b341; font-size: 0.8rem; line-height: 1.45; }
+
+/* Link to the sister site (The Quant Paddock, F1). */
+.sister-link { font-size: 0.78rem; color: var(--text2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; white-space: nowrap; text-decoration: none; }
+.sister-link:hover { color: var(--text); border-color: var(--blue); }
