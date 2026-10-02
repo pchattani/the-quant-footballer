@@ -17,7 +17,7 @@ const { C, PALETTE, ROUND_LABELS, esc, pct, num, signed, fmtNum, fmtMetric, fmtD
 function fixtureRow(f, opts) {
   const o = opts || {};
   const score = f.status === 'finished' || f.status === 'live'
-    ? '<span class="score">' + f.hs + ' – ' + f.as + '</span>' : '<span class="score vs">v</span>';
+    ? '<span class="score">' + esc(FH.scoreText(f)) + '</span>' : '<span class="score vs">v</span>';
   const xg = f.xg ? '<span class="xg-line">xG ' + num(f.xg[0], 2) + ' – ' + num(f.xg[1], 2) + '</span>' : '';
   const href = f.detail ? matchHref(f.id, f.comp) : null;      // f.comp set on site-wide lists
   return '<div class="fx-row' + (href ? ' has-link' : '') + '"' + (href ? ' data-href="' + esc(href) + '"' : '') + '>' +
@@ -30,7 +30,8 @@ function fixtureRow(f, opts) {
 }
 
 function leadersMini(players, key, label, fmt) {
-  const rows = players.filter(p => p[key] !== undefined && p[key] !== null && (key !== 'rating' || p.qualified)).sort((a, b) => b[key] - a[key]).slice(0, 5);
+  // A leaderboard of zeros (a one-match super cup's goals) lists only who actually scored.
+  const rows = players.filter(p => p[key] !== undefined && p[key] !== null && (key !== 'rating' ? p[key] > 0 : p.qualified)).sort((a, b) => b[key] - a[key]).slice(0, 5);
   if (!rows.length) return '';
   return '<div class="mini-card"><div class="mini-head">' + esc(label) + '</div>' + rows.map((p, i) =>
     '<div class="mini-row"><span class="mini-rank">' + (i + 1) + '</span><span class="mini-name">' + playerLink(p.player_id, p.name) +
@@ -67,11 +68,33 @@ function renderOverview() {
   const favKey = (k === 'conference' || k === 'playoff' || k === 'cup') ? 'p_cup' : 'p_title';
   const fav = probs.slice().sort((a, b) => (b[favKey] || b.p_title || 0) - (a[favKey] || a.p_title || 0))[0];
   const scorer = players.slice().sort((a, b) => (b.goals - a.goals) || (b.xg - a.xg))[0];
+  // A competition between editions has a result, not a favourite: the final's winner.
+  const last = FH.isLastEdition && FH.isLastEdition(c);
+  const final = last ? fx.filter(f => f.round === 'final' && f.status === 'finished').slice(-1)[0] : null;
+  const champ = last && c.winner && c.winner.team ? c.winner.team : final ? (final.winner || final.agg_winner || (final.hs > final.as ? final.home : final.as > final.hs ? final.away : null)) : (last && c.favourite && (c.complete || c.p_favourite >= 0.995) ? c.favourite : null);
+  // A knockout cup has no table to lead: say which round it is in instead.
+  let leadLabel = 'Leader';
+  if (leaderHtml === '—' && fx.length) {
+    const next = fx.find(f => f.status === 'scheduled' || f.status === 'live');
+    const prev = fx.filter(f => f.status === 'finished').slice(-1)[0];
+    const f0 = next || prev;
+    if (f0) { leadLabel = 'Round'; leaderHtml = esc(FH.roundText(f0) || '—'); leaderSub = next ? 'next match ' + esc(fmtDate(next.date)) : 'latest round played'; }
+  }
+  // The final's score from the winner's side ("won 3–0 v Senegal"), whoever was at home.
+  const finalLine = final && champ ? (() => {
+    const home = final.home === champ, gf = home ? final.hs : final.as, ga = home ? final.as : final.hs;
+    return ' · final ' + (gf > ga ? 'won ' : gf === ga ? 'drew ' : 'lost ') + gf + '–' + ga + ' v ' + esc(home ? final.away : final.home) + (gf === ga ? ', won on penalties' : '');
+  })() : '';
+  // A cup's games_played / games_total count its group or league phase only: count the fixture list.
+  const real = fx.filter(f => f.status !== 'cancelled' && f.status !== 'postponed');
+  const gp = k === 'cup' && real.length ? real.filter(f => f.status === 'finished').length : (m.games_played || 0);
+  const gt = k === 'cup' && real.length ? real.length : (m.games_total || 0);
   const tiles = [
-    statTile('Leader', leaderHtml, leaderSub),
+    statTile(leadLabel, leaderHtml, leaderSub),
+    last ? statTile('Winner', champ ? teamLink(champ) : '—', champ ? 'last edition, ' + esc(FH.currentSeason(c).season) + finalLine : 'last edition') :
     statTile((c.favourite_label || 'Title') + ' favourite', fav ? teamLink(fav.team) : '—', fav ? '<strong>' + pct(fav[favKey] || fav.p_title) + '</strong> in ' + (m.n_sims || 0).toLocaleString('en-US') + ' simulations' : ''),
     statTile('Top scorer', scorer ? playerLink(scorer.player_id, scorer.name) : '—', scorer ? scorer.goals + ' goals · xG ' + num(scorer.xg, 2) + ' · ' + esc(scorer.team) : ''),
-    statTile('Season', (m.games_played || 0) + ' <span class="kpi-dim">/ ' + (m.games_total || 0) + '</span>', 'matches played · ' + (m.detail_matches || 0) + ' with full match data')
+    statTile('Season', gp + ' <span class="kpi-dim">/ ' + gt + '</span>', 'matches played · ' + (m.detail_matches || 0) + ' with full match data')
   ];
   setHTML('ov-tiles', '<div class="kpi-grid">' + tiles.join('') + '</div>');
   setHTML('ov-note', '');     // the phase note is the page banner already
@@ -85,7 +108,8 @@ function renderOverview() {
 
   // The race.
   const race = probs.map(p => ({ label: p.team, p: p[favKey] !== undefined ? p[favKey] : (p.p_title || 0) })).sort((a, b) => b.p - a.p).slice(0, 8);
-  if (race.length && race[0].p > 0) renderProbBars('ov-race', race, 'Probability of winning ' + (c.favourite_label === 'Title' ? 'the title' : (c.favourite_label || 'the competition')));
+  if (last) setHTML('ov-race', '<div class="muted">This edition is over' + (champ ? ': ' + esc(champ) + ' won it' : '') + '. The next edition is not in the data yet, so there is nothing to simulate.</div>');
+  else if (race.length && race[0].p > 0) renderProbBars('ov-race', race, 'Probability of winning ' + (c.favourite_label === 'Title' ? 'the title' : (c.favourite_label || 'the competition')));
   else setHTML('ov-race', '<div class="muted">No simulation for this competition yet.</div>');
 
   // Leaders.
@@ -104,10 +128,12 @@ function renderFixtures() {
   const stageSel = document.getElementById('fx-stage'), teamSel = document.getElementById('fx-team'), statusSel = document.getElementById('fx-status');
   const stages = Array.from(new Set(all.map(f => f.stage || 'league')));
   const rounds = Array.from(new Set(all.map(f => String(f.round === null || f.round === undefined ? '' : f.round)).filter(Boolean)));
-  const roundNum = r => /^\d+$/.test(r) ? parseInt(r, 10) : NaN;
-  rounds.sort((a, b) => { const x = roundNum(a), y = roundNum(b); return (!isNaN(x) && !isNaN(y)) ? x - y : String(a).localeCompare(String(b)); });
-  stageSel.innerHTML = '<option value="">All stages</option>' + stages.map(s => '<option value="' + esc(s) + '">' + esc(FH.STAGE_LABELS[s] || s) + '</option>').join('') +
-    (rounds.length > 1 ? '<optgroup label="Rounds">' + rounds.map(r => '<option value="round:' + esc(r) + '">' + esc(ROUND_LABELS[r] ? ROUND_LABELS[r] : 'Round ' + r) + '</option>').join('') + '</optgroup>' : '');
+  // Rounds in the order they were played (a cup's numbered early rounds, then its knockout rounds).
+  const firstDate = {};
+  all.forEach(f => { const r = String(f.round === null || f.round === undefined ? '' : f.round); const d = String(f.date || '9999'); if (!(r in firstDate) || d < firstDate[r]) firstDate[r] = d; });
+  rounds.sort((a, b) => firstDate[a].localeCompare(firstDate[b]) || String(a).localeCompare(String(b)));
+  stageSel.innerHTML = '<option value="">All stages</option>' + stages.map(s => '<option value="' + esc(s) + '">' + esc(FH.stageLabel(s)) + '</option>').join('') +
+    (rounds.length > 1 ? '<optgroup label="Rounds">' + rounds.map(r => { const f0 = all.find(f => String(f.round) === r) || { round: r }; return '<option value="round:' + esc(r) + '">' + esc(FH.roundText(f0)) + '</option>'; }).join('') + '</optgroup>' : '');
   const teams = Array.from(new Set(all.map(f => f.home).concat(all.map(f => f.away)))).sort((a, b) => a.localeCompare(b));
   teamSel.innerHTML = '<option value="">All clubs</option>' + teams.map(t => '<option value="' + esc(t) + '">' + esc(t) + '</option>').join('');
   // Default to the week around today when the season is under way.
@@ -162,7 +188,7 @@ function fixtureDetailRow(f) {
   } else {
     extra = '<span class="muted-inline">no model line</span>';
   }
-  const roundTxt = f.round !== null && f.round !== undefined ? (ROUND_LABELS[f.round] || ((f.stage === 'league' || !f.stage) ? 'R' + f.round : String(f.round))) : '';
+  const roundTxt = FH.roundText(f, null, true);
   return '<div class="fx-row detail' + (href ? ' has-link' : '') + '"' + (href ? ' data-href="' + esc(href) + '"' : '') + '>' +
     '<div class="fx-when">' + statusChip(f) + '<span class="fx-round">' + esc(roundTxt) + (f.group ? ' · ' + esc(f.group) : '') + '</span></div>' +
     '<div class="fx-home">' + teamLink(f.home).replace('<a class="team-link"', '<a class="team-link rev"') + '</div>' +
@@ -831,7 +857,7 @@ function renderPlayers() {
       { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' }, { label: 'Rating', align: 'right' }
     ], rows.map((p, i) => ({ cells: [
       { v: i + 1, cls: 'pos-cell' }, { v: p.name, html: playerLink(p.player_id, p.name) }, { v: p.team, html: teamLink(p.team) },
-      { v: p.position || '', html: p.position ? '<span class="pos-badge pos-' + esc(p.position) + '">' + esc(p.position) + '</span>' : '', align: 'center' },
+      { v: p.position || (p.is_gk ? 'G' : ''), html: (p.position || p.is_gk) ? '<span class="pos-badge pos-' + esc(p.position || 'G') + '">' + esc(p.position || 'G') + '</span>' : '', align: 'center' },
       { v: p.age || 0, html: p.age || '—', align: 'right' },
       { v: p.matches, align: 'right' }, { v: p.minutes, align: 'right' },
       { v: p[key], html: '<strong>' + fmtMetric(p[key], metric.fmt) + '</strong>', align: 'right' },
@@ -906,8 +932,8 @@ function renderMatches() {
       { label: 'Date' }, { label: 'Round', align: 'right' }, { label: 'Home' }, { label: 'Score', align: 'center', sortable: false },
       { label: 'Away' }, { label: 'xG', align: 'center', sortable: false }, { label: '', sortable: false }
     ], rows.map(m => ({ _href: m.detail ? matchHref(m.id) : null, cells: [
-      { v: m.date || '', html: esc(fmtDate(m.date, true)) }, { v: m.round === undefined ? '' : m.round, html: esc(ROUND_LABELS[m.round] || m.round || ''), align: 'right' },
-      { v: m.home, html: teamLink(m.home) }, { v: m.hs + '-' + m.as, html: '<span class="score">' + m.hs + ' – ' + m.as + '</span>', align: 'center' },
+      { v: m.date || '', html: esc(fmtDate(m.date, true)) }, { v: m.round === undefined ? '' : m.round, html: esc(FH.roundText(m, null, true)), align: 'right' },
+      { v: m.home, html: teamLink(m.home) }, { v: m.hs + '-' + m.as, html: '<span class="score">' + esc(FH.scoreText(Object.assign({ status: 'finished' }, m))) + '</span>', align: 'center' },
       { v: m.away, html: teamLink(m.away) },
       { v: m.xg ? m.xg[0] : '', html: m.xg ? '<span class="xg-line">' + num(m.xg[0], 2) + ' – ' + num(m.xg[1], 2) + '</span>' : '', align: 'center' },
       { v: '', html: m.detail ? '<a href="' + esc(matchHref(m.id)) + '">Analysis →</a>' : '<span class="muted-inline">—</span>' }

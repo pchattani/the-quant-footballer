@@ -2,13 +2,11 @@
  *
  *   #/clubs                 every club on the pooled scale, a hypothetical-match pricer
  *   #/leaders               global leaderboards, raw and league-adjusted
- *   #/ballon-dor            the Ballon d'Or model against the market
  *   #/compare/...           two players or two clubs side by side
- *   #/player/<id>           a player's career (from the archive)
+ *   (#/player/<pid> and #/club/<tid>, one page per person and per club, live in people.js)
  *
  * All of it reads the site-wide payloads (pool.json, players_global.json,
- * ballon-dor/ballon_dor.json, careers/, history/) and never needs a competition
- * to be open. The Dixon-Coles pricing of a hypothetical match is computed here
+ * nations.json, season_index.json) and never needs a competition to be open. The Dixon-Coles pricing of a hypothetical match is computed here
  * from the pooled parameters, so any two clubs across leagues can be priced. */
 (function (FH) {
 'use strict';
@@ -259,111 +257,6 @@ function renderLeaders() {
     }
     metricSel.onchange = draw; posSel.onchange = () => { fill(); draw(); }; compSel.onchange = draw; minMin.onchange = draw; minMin.oninput = draw;
     draw();
-  });
-}
-
-// ── Ballon d'Or ────────────────────────────────────────────────────────────
-
-function driverBar(c) {
-  const d = c.drivers || {};
-  const keys = [['ucl', 'UCL', C.blue], ['league', 'League', C.teal], ['international', 'Intl', C.green], ['international_output', 'Intl out.', '#7ee787'],
-                ['output', 'Output', C.orange], ['rating', 'Rating', C.purple], ['position', 'Pos', C.text3]];
-  return '<div class="drivers">' + keys.map(k => {
-    const v = d[k[0]] || 0;
-    if (Math.abs(v) < 0.05) return '';
-    return '<span class="drv" style="background:' + k[2] + (v < 0 ? '33' : '') + ';border-color:' + k[2] + '" title="' + k[1] + ' ' + signed(v, 2) + '">' + k[1] + ' ' + signed(v, 1) + '</span>';
-  }).join('') + '</div>';
-}
-
-function renderBallonDor() {
-  loadSite('ballon-dor/ballon_dor.json').then(b => {
-    if (!b || !b.edition) { setHTML('bd-table', '<div class="muted">No Ballon d\'Or payload yet.</div>'); return; }
-    const ed = b.edition, mk = (b.market || {}).winner;
-    setHTML('bd-sub', ed.season + ' season · ceremony ' + esc(fmtDate(ed.ceremony, true)) + (mk ? ' · market: Polymarket "' + esc(mk.title) + '", $' + Math.round((mk.volume || 0) / 1e6) + 'M traded, fetched ' + esc(fmtStamp(mk.fetched_at)) : ' · no market this run'));
-    setHTML('bd-notes', (b.notes || []).map(n => '<div class="stale-banner">' + esc(n) + '</div>').join(''));
-    const w = ed.weights || {};
-    const cands = ed.candidates || [];
-    setHTML('bd-table', tableHTML([
-      { label: '#', sortable: false }, { label: 'Player' }, { label: 'Club', sortable: false }, { label: 'Pos', align: 'center' },
-      { label: 'Model', align: 'right', title: 'Model probability of winning' }, { label: 'Market', align: 'right', title: 'Polymarket implied (YES prices normalised)' },
-      { label: 'Edge', align: 'right', title: 'Model minus market' }, { label: 'Fair', align: 'right', title: 'Fair decimal odds from the model' },
-      { label: 'Drivers', sortable: false, title: 'Contribution of each term to the score' }, { label: 'Season line', sortable: false }
-    ], cands.map((c, i) => ({ cells: [
-      { v: i + 1, cls: 'pos-cell' },
-      { v: c.name, html: c.id ? playerLink(c.id, c.name, c.league_slug || c.league) : esc(c.name) },
-      { v: c.club, html: esc(c.club) + (c.club_season && c.club_season !== c.club ? ' <span class="muted-inline">(' + esc(c.club_season) + ' last season)</span>' : '') },
-      { v: c.position || '', html: '<span class="pos-badge pos-' + esc(c.position || '') + '">' + esc(c.position || '') + '</span>', align: 'center' },
-      { v: c.model, html: '<strong>' + pct(c.model) + '</strong>', align: 'right' },
-      { v: c.market === null || c.market === undefined ? -1 : c.market, html: c.market === null || c.market === undefined ? '—' : pct(c.market), align: 'right' },
-      { v: c.edge === null || c.edge === undefined ? 0 : c.edge, html: c.edge === null || c.edge === undefined ? '—' : '<span class="' + (c.edge > 0.05 ? 'danger' : c.edge < -0.05 ? '' : 'safe') + '">' + signed(c.edge * 100, 1) + '%</span>', align: 'right' },
-      { v: c.model, html: fairOdds(c.model), align: 'right' },
-      { v: c.score, html: driverBar(c) },
-      { v: '', html: c.line ? (c.line.goals || 0) + 'G ' + (c.line.assists || 0) + 'A in ' + (c.line.minutes || 0) + "'" + (c.line.rating ? ' · ' + num(c.line.rating, 2) : '') + (c.output_source === 'proxy' ? ' <span class="chip warn" title="this season, as a proxy for last season">proxy</span>' : '') + (c.int_line ? '<br><span class="muted-inline">WC: ' + (c.int_line.goals || 0) + 'G ' + (c.int_line.assists || 0) + 'A' + (c.int_line.rating ? ' · ' + num(c.int_line.rating, 2) : '') + '</span>' : '') : '<span class="muted-inline">no line</span>' }
-    ] })), { sticky: true }));
-    sortableIn('bd-table');
-
-    // Model against market, top names.
-    const top = cands.slice(0, 12).reverse();
-    plot('bd-chart', [
-      { type: 'bar', orientation: 'h', name: 'Model', y: top.map(c => c.name), x: top.map(c => c.model), marker: { color: C.blue }, hovertemplate: '%{y}: model %{x:.1%}<extra></extra>' },
-      { type: 'bar', orientation: 'h', name: 'Market', y: top.map(c => c.name), x: top.map(c => c.market || 0), marker: { color: C.orange }, hovertemplate: '%{y}: market %{x:.1%}<extra></extra>' }
-    ], layout({ barmode: 'group', showlegend: true, legend: { orientation: 'h', y: 1.08, font: { color: C.text2 } }, margin: { l: 150, r: 20, t: 30, b: 40 }, xaxis: { tickformat: '.0%' }, yaxis: { automargin: true } }));
-
-    // Market top-3 / top-5.
-    const t3 = (b.market || {}).top3, t5 = (b.market || {}).top5;
-    const implied = m => Object.keys((m || {}).implied || {}).map(n => ({ name: n, p: m.implied[n] })).sort((x, y) => y.p - x.p).slice(0, 12);
-    const mkRows = implied(mk), r3 = implied(t3), r5 = implied(t5);
-    if (mkRows.length) {
-      setHTML('bd-market', tableHTML([{ label: 'Player' }, { label: 'Win', align: 'right' }, { label: 'Top 3', align: 'right' }, { label: 'Top 5', align: 'right' }, { label: 'Price', align: 'right', title: 'YES price (cents)' }, { label: '1w', align: 'right', title: 'Price change over a week' }],
-        mkRows.map(r => { const price = (mk.prices || []).find(p => p.name === r.name) || {}; const f3 = r3.find(x => x.name === r.name), f5 = r5.find(x => x.name === r.name); return { cells: [
-          { v: r.name }, { v: r.p, html: '<strong>' + pct(r.p) + '</strong>', align: 'right' },
-          { v: f3 ? f3.p : 0, html: f3 ? pct(f3.p) : '—', align: 'right' }, { v: f5 ? f5.p : 0, html: f5 ? pct(f5.p) : '—', align: 'right' },
-          { v: price.yes || 0, html: price.yes !== undefined ? Math.round(price.yes * 100) + '¢' : '—', align: 'right' },
-          { v: price.change_1w || 0, html: price.change_1w !== undefined && price.change_1w !== null ? '<span class="' + (price.change_1w > 0 ? 'res-W' : price.change_1w < 0 ? 'res-L' : '') + '">' + signed(price.change_1w * 100, 1) + '</span>' : '—', align: 'right' }
-        ] }; })));
-    } else setHTML('bd-market', '<div class="muted">No market data this run.</div>');
-
-    // Snapshots over time.
-    const snaps = b.snapshots || [];
-    if (snaps.length >= 2) {
-      const names = cands.slice(0, 5).map(c => c.name);
-      const traces = [];
-      names.forEach((n, i) => {
-        traces.push({ type: 'scatter', mode: 'lines', name: n + ' (model)', x: snaps.map(s => s.ts), y: snaps.map(s => (s.model || {})[n] || 0), line: { color: PALETTE[i % 8], width: 2 } });
-        traces.push({ type: 'scatter', mode: 'lines', name: n + ' (market)', x: snaps.map(s => s.ts), y: snaps.map(s => (s.market || {})[n] || null), line: { color: PALETTE[i % 8], width: 1.5, dash: 'dot' } });
-      });
-      plot('bd-history', traces, layout({ showlegend: true, legend: { orientation: 'h', y: -0.2, font: { color: C.text2 } }, margin: { l: 55, r: 20, t: 10, b: 80 }, yaxis: { tickformat: '.0%', rangemode: 'tozero' } }));
-    } else setHTML('bd-history', '<div class="muted">The model-against-market chart appears after a few hourly runs.</div>');
-
-    // Next edition.
-    const nx = b.next || {};
-    setHTML('bd-next-sub', (nx.season || '') + ' · ' + esc(nx.note || ''));
-    // A projected candidate's league is a weight in the payload; its competition is the key's prefix.
-    const slugOf = c => typeof c.league === 'string' ? c.league : String(c.key || '').split(':')[0];
-    setHTML('bd-next', (nx.candidates || []).length ? tableHTML([
-      { label: '#', sortable: false }, { label: 'Player' }, { label: 'Club' }, { label: 'League' }, { label: 'Pos', align: 'center' }, { label: 'Model', align: 'right' },
-      { label: 'P(title)', align: 'right' }, { label: 'P(UCL)', align: 'right' }, { label: 'G+A/90 adj.', align: 'right' }, { label: 'Rating', align: 'right' }, { label: 'Drivers', sortable: false }
-    ], nx.candidates.map((c, i) => ({ cells: [
-      { v: i + 1, cls: 'pos-cell' }, { v: c.name, html: playerLink(c.id, c.name, slugOf(c)) }, { v: c.club, html: esc(c.club) },
-      { v: slugOf(c), html: esc(((INDEX.competitions.find(x => x.slug === slugOf(c)) || {}).short_name) || slugOf(c)) + (typeof c.league === 'number' ? ' <span class="muted-inline" title="League weight in the model">' + num(c.league, 2) + '</span>' : '') },
-      { v: c.position || '', html: '<span class="pos-badge pos-' + esc(c.position || '') + '">' + esc(c.position || '') + '</span>', align: 'center' },
-      { v: c.model, html: '<strong>' + pct(c.model) + '</strong>', align: 'right' }, { v: c.p_title, html: pct(c.p_title), align: 'right' },
-      { v: c.p_ucl, html: pct(c.p_ucl), align: 'right' }, { v: c.ga90, html: num(c.ga90, 2), align: 'right' }, { v: c.rating || 0, html: num(c.rating, 2), align: 'right' },
-      { v: c.score, html: driverBar(c) }
-    ] })), { sticky: true }) : '<div class="muted">No projection yet.</div>');
-    sortableIn('bd-next');
-
-    // History of winners.
-    setHTML('bd-winners', tableHTML([{ label: 'Year', align: 'right' }, { label: 'Winner' }, { label: 'Club' }, { label: 'Second' }, { label: 'Third' }],
-      (b.history || []).map(h => ({ cells: [{ v: h.year, align: 'right' }, { v: h.winner || '', html: h.winner ? '<strong>' + esc(h.winner) + '</strong>' : '<span class="muted-inline">' + esc(h.note || '—') + '</span>' },
-        { v: h.winner_club || '' }, { v: h.second || '' }, { v: h.third || '' }] }))));
-    setHTML('bd-weights', tableHTML([{ label: 'Term', sortable: false }, { label: 'Weight', align: 'right', sortable: false }, { label: 'Feature', sortable: false }], [
-      ['ucl', 'Champions League: 1 winner, 0.6 finalist, 0.3 semi-finalist'], ['league', 'League title (weighted by league: big five 1.0, others less)'],
-      ['international', "That summer's tournament: 1 winner, 0.6 finalist, 0.3 semi-finalist"], ['international_output', 'z-score of goal involvement per 90 at the tournament'],
-      ['output', 'z-score of goal involvement per 90 over the season (league + UCL)'], ['rating', 'z-score of the season rating'], ['temperature', 'Softmax temperature']
-    ].map(r => ({ cells: [{ v: r[0] }, { v: w[r[0]], html: num(w[r[0]], 2), align: 'right' }, { v: r[1] }] })).concat([{ cells: [{ v: 'position prior' }, { v: '', html: Object.keys(w.position_prior || {}).map(k => k + ' ' + signed(w.position_prior[k], 1)).join(' · '), align: 'right' }, { v: 'Forwards win; midfielders rarely; defenders and keepers almost never' }] }])));
-    setHTML('bd-method', '<p>Weights: <strong>' + esc(w.method === 'fitted' ? 'fitted on ' + (w.editions || '') + ' past podiums (Plackett-Luce)' : 'structural defaults') + '</strong>. ' +
-      'The score is the weighted sum of the terms; the win probability is a softmax over the shortlist. Fair odds carry no margin. The market column is Polymarket\'s YES price per candidate, normalised so the shortlist sums to one; the edge is model minus market and is only as good as the model\'s inputs — until last season\'s statistics are in the archive, the output and rating terms use this season\'s numbers as a proxy.</p>');
   });
 }
 
@@ -855,8 +748,8 @@ function buildClubs(K, pool, token) {
         const href = m.detail ? matchHref(m.id, A.comp.slug) : null;
         const model = !done && m.model ? probBar(m.model, { small: true }) + (m.model.fair ? '<div class="fx-model-line"><span>fair ' + m.model.fair.map(f => f === null ? '—' : num(f, 2)).join(' / ') + '</span><span>xG ' + num(m.model.lh, 2) + '–' + num(m.model.la, 2) + '</span><span>' + esc(m.model.score) + ' (' + pct(m.model.p_score, 0) + ')</span></div>' : '') : done ? '' : '<span class="muted-inline">no line</span>';
         return { _href: href, cells: [
-          { v: m.date || '', html: esc(fmtDate(m.date, true)) }, { v: m.round === undefined || m.round === null ? '' : m.round, html: esc((FH.ROUND_LABELS || {})[m.round] || m.round || ''), align: 'right' },
-          { v: m.home, html: (m.home === A.team ? crestOf(A) : crestOf(B)) + esc(m.home) }, { v: done ? m.hs + '-' + m.as : '', html: done || m.status === 'live' ? '<span class="score">' + m.hs + ' – ' + m.as + '</span>' : FH.statusChip(m), align: 'center' },
+          { v: m.date || '', html: esc(fmtDate(m.date, true)) }, { v: m.round === undefined || m.round === null ? '' : m.round, html: esc(FH.roundText(m, A.comp.slug, true)), align: 'right' },
+          { v: m.home, html: (m.home === A.team ? crestOf(A) : crestOf(B)) + esc(m.home) }, { v: done ? m.hs + '-' + m.as : '', html: done || m.status === 'live' ? '<span class="score">' + esc(FH.scoreText(m)) + '</span>' : FH.statusChip(m), align: 'center' },
           { v: m.away, html: (m.away === A.team ? crestOf(A) : crestOf(B)) + esc(m.away) },
           { v: '', html: m.xg ? '<span class="xg-line">' + num(m.xg[0], 2) + ' – ' + num(m.xg[1], 2) + '</span>' : '', align: 'center' }, { v: '', html: model }, { v: '', html: href ? '<a href="' + esc(href) + '">Analysis →</a>' : '' }
         ] };
@@ -964,62 +857,7 @@ function buildClubs(K, pool, token) {
 
 function note(html) { return '<div class="doc-note">' + html + '</div>'; }
 
-// ── career page ────────────────────────────────────────────────────────────
-
-function renderCareer(id) {
-  const pane = document.getElementById('tab-page');
-  pane.innerHTML = '<div class="muted">Loading…</div>';
-  FH.fetchJSON('data/careers/' + id + '.json', null).then(c => {
-    if (!c) {
-      pane.innerHTML = '<div class="card"><div class="muted">No career in the archive for player ' + esc(id) + ' yet. Careers fill in as the history fetch runs; this season\'s page is under the player\'s competition.</div></div>';
-      return;
-    }
-    const d = c.details || {};
-    const age = d.dob ? Math.floor((Date.now() / 1000 - d.dob) / (365.25 * 86400)) : null;
-    const chips = [];
-    if (d.position) chips.push('<span class="chip pos-' + esc(d.position) + '">' + esc(d.position) + '</span>');
-    if (age) chips.push('<span class="chip">' + age + ' years</span>');
-    if (d.height) chips.push('<span class="chip">' + d.height + ' cm</span>');
-    if (d.country) chips.push('<span class="chip">' + esc(d.country) + '</span>');
-    if (d.foot) chips.push('<span class="chip">' + esc(d.foot) + ' foot</span>');
-    if (d.market_value) chips.push('<span class="chip">€' + Math.round(d.market_value / 1e6) + 'M</span>');
-    let html = '<div class="page-header"><div class="ph-crest"><span class="ph-initials">' + esc((d.name || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()) + '</span></div>' +
-      '<div class="ph-body"><h2>' + esc(d.name || 'Player ' + id) + '</h2><div class="ph-sub">' + esc(d.team || '') + ' · career from the archive' + (c.complete ? '' : ' (still filling)') + '</div><div class="ph-chips">' + chips.join('') + '</div></div></div>';
-    const t = c.totals || {};
-    html += '<div class="kpi-grid six">' + statTile('Seasons', c.seasons.length, 'in the archive') + statTile('Apps', t.apps || 0, (t.minutes || 0) + ' minutes') +
-      statTile('Goals', t.goals || 0, t.xg ? 'xG ' + num(t.xg, 1) : '') + statTile('Assists', t.assists || 0, t.xa ? 'xA ' + num(t.xa, 1) : '') +
-      statTile('G+A per 90', num(t.ga_90, 2), 'over the archived seasons') + statTile('Rating', t.rating ? num(t.rating, 2) : '—', 'minutes-weighted') + '</div>';
-    html += '<div class="grid-2"><div class="card"><div class="card-header">Goals and assists by season</div><div id="cr-goals" style="height:340px"></div></div>' +
-      '<div class="card"><div class="card-header">Rate and rating by season</div><div id="cr-rate" style="height:340px"></div></div></div>';
-    html += '<div class="card"><div class="card-header">Season by season <span class="card-sub">Every tournament the archive follows.</span></div><div id="cr-table"></div></div>';
-    html += '<div class="card"><div class="muted"><a href="#/compare/players/' + esc((INDEX.competitions.find(x => true) || {}).slug || '') + ':' + esc(id) + '">Compare this player →</a></div></div>';
-    pane.innerHTML = html;
-    const ss = c.seasons || [];
-    const labels = ss.map(s => seasonLabel(s));
-    plot('cr-goals', [
-      { type: 'bar', name: 'Goals', x: labels, y: ss.map(s => s.goals || 0), marker: { color: C.blue } },
-      { type: 'bar', name: 'Assists', x: labels, y: ss.map(s => s.assists || 0), marker: { color: C.teal } }
-    ], layout({ barmode: 'stack', showlegend: true, legend: { orientation: 'h', y: 1.12, font: { color: C.text2 } }, margin: { l: 40, r: 15, t: 30, b: 110 }, xaxis: { tickangle: -45 } }));
-    plot('cr-rate', [
-      { type: 'scatter', mode: 'lines+markers', name: 'G+A per 90', x: labels, y: ss.map(s => s.ga_90 || 0), line: { color: C.orange, width: 2 } },
-      { type: 'scatter', mode: 'lines+markers', name: 'Rating', x: labels, y: ss.map(s => s.rating || null), line: { color: C.purple, width: 2 }, yaxis: 'y2' }
-    ], layout({ showlegend: true, legend: { orientation: 'h', y: 1.12, font: { color: C.text2 } }, margin: { l: 40, r: 40, t: 30, b: 110 }, xaxis: { tickangle: -45 },
-      yaxis2: { overlaying: 'y', side: 'right', range: [5.5, 9], gridcolor: '#21262d' } }));
-    setHTML('cr-table', tableHTML([
-      { label: 'Season' }, { label: 'Competition' }, { label: 'Club' }, { label: 'Apps', align: 'right' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' },
-      { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' }, { label: 'G+A/90', align: 'right' }, { label: 'Shots/90', align: 'right' }, { label: 'KP/90', align: 'right' }, { label: 'Rating', align: 'right' }
-    ], ss.slice().reverse().map(s => ({ cells: [
-      { v: s.season || s.year || '' }, { v: s.tournament || '' }, { v: s.team || '' }, { v: s.apps || 0, align: 'right' }, { v: s.minutes || 0, align: 'right' },
-      { v: s.goals || 0, align: 'right' }, { v: s.assists || 0, align: 'right' }, { v: s.xg || 0, html: s.xg !== undefined ? num(s.xg, 2) : '—', align: 'right' },
-      { v: s.xa || 0, html: s.xa !== undefined ? num(s.xa, 2) : '—', align: 'right' }, { v: s.ga_90 || 0, html: num(s.ga_90, 2), align: 'right' },
-      { v: s.shots_90 || 0, html: s.shots_90 !== undefined ? num(s.shots_90, 2) : '—', align: 'right' }, { v: s.key_passes_90 || 0, html: s.key_passes_90 !== undefined ? num(s.key_passes_90, 2) : '—', align: 'right' },
-      { v: s.rating || 0, html: s.rating ? num(s.rating, 2) : '—', align: 'right' }
-    ] })), { sticky: true }));
-    sortableIn('cr-table');
-  });
-}
-
-Object.assign(FH.GLOBAL_PAGES, { clubs: renderClubs, nations: renderNations, leaders: renderLeaders, ballondor: renderBallonDor, compare: renderCompare, career: renderCareer });
+Object.assign(FH.GLOBAL_PAGES, { clubs: renderClubs, nations: renderNations, leaders: renderLeaders, compare: renderCompare });
 FH.dcMatrix = dcMatrix;
 FH.matchCard = matchCard;
 })(window.FH);

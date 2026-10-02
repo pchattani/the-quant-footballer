@@ -213,12 +213,14 @@ function renderClubAnalytics(team) {
   setHTML('tp-setpieces', tiles.length ? '<div class="kpi-grid pad" style="margin-bottom:0">' + tiles.join('') + '</div>' : none(hasProfile ? 'No set-piece or discipline figures yet.' : noAn));
 }
 
-function renderTeamPage(param) {
+/* The club's season in the open competition: model tiles, the season profile,
+   xG and form charts, the analytics cards, and the squad's lines with
+   percentiles. Rendered into `el`; the unified club page calls it inside
+   FH.withComp(slug, ...) with the competition's payloads loaded. */
+function renderClubDossier(el, team) {
   const d = D();
   const k = kind();
   const c = comp() || {};
-  const team = findTeamBySlug(param) || decodeURIComponent(param);
-  const pane = document.getElementById('tab-page');
   const prob = ((d.probs || {}).teams || []).find(t => t.team === team) || {};
   const str = ((d.strength || {}).rows || []).find(r => r.team === team) || {};
   const ts = ((d.team_stats || {}).teams || {})[team] || { season: {}, matches: [] };
@@ -232,8 +234,7 @@ function renderTeamPage(param) {
   const chips = [];
   if (row) chips.push('<span class="chip">' + (info.conference ? esc(info.conference) + ' · ' : '') + 'P' + row.pos + ' · ' + row.pts + ' pts · ' + row.w + '-' + row.d + '-' + row.l + '</span>');
   if (str.form_results) chips.push('<span class="chip form-chip-wrap">Form ' + formChips(str.form_results) + '</span>');
-  if (info.league && info.league !== c.slug) chips.push('<a class="chip" href="#/' + esc(info.league) + '/team/' + esc(FH.slugify(team)) + '">In its league →</a>');
-  let html = pageHeader(crest(team, null, 'xl'), esc(team), esc(c.name) + (t.season ? ' · ' + esc(t.season) : ''), chips.join(''));
+  let html = chips.length ? '<div class="ph-chips dossier-chips">' + chips.join('') + '</div>' : '';
 
   const tiles = teamHeadline(prob, k).map(([label, v]) => statTile(label, pct(v)));
   tiles.push(statTile('Strength', num(str.strength_ppg, 2), 'expected PPG v average opponent'));
@@ -254,13 +255,8 @@ function renderTeamPage(param) {
   // Analytics: rankings, style, expected points, the squad by position, the
   // best XI, extremes and set pieces (analytics.json; each card degrades alone).
   html += clubAnalyticsHTML(team);
-
-  // Results and fixtures.
-  const fx = ((d.fixtures || {}).matches || []).filter(f => f.home === team || f.away === team);
-  html += '<div class="card"><div class="card-header">Matches <span class="card-sub">Results with xG; fixtures with the model\'s line.</span></div><div id="tp-matches"></div></div>';
-  // Squad.
-  html += '<div class="card"><div class="card-header">Squad <span class="card-sub">Season lines; percentile pills against positional peers.</span></div><div id="tp-squad"></div></div>';
-  pane.innerHTML = html;
+  html += '<div class="card"><div class="card-header">Players in ' + esc(c.name) + ' <span class="card-sub">This season\'s lines in this competition; percentile pills against positional peers.</span></div><div id="tp-squad"></div></div>';
+  el.innerHTML = html;
   try { renderClubAnalytics(team); } catch (err) { console.error('club analytics failed', err); }
 
   // Charts.
@@ -280,6 +276,38 @@ function renderTeamPage(param) {
       layout({ margin: { l: 45, r: 15, t: 10, b: 35 }, yaxis: { range: [0, 3.1], title: 'PPG' }, xaxis: { title: 'Match' } }));
   } else setHTML('tp-form', '<div class="muted">Not enough matches.</div>');
 
+  // Squad.
+  const squad = ((d.players_live || {}).players || []).filter(p => p.team === team).sort((a, b) => b.minutes - a.minutes);
+  setHTML('tp-squad', squad.length ? tableHTML([
+    { label: 'Player' }, { label: 'Pos', align: 'center' }, { label: 'Age', align: 'right' }, { label: 'Apps', align: 'right' }, { label: 'Starts', align: 'right' },
+    { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' },
+    { label: 'npxG/90', align: 'right' }, { label: 'xA/90', align: 'right' }, { label: 'Pass %', align: 'right' }, { label: 'Rating', align: 'right' }
+  ], squad.map(p => {
+    const pc = p.pct || {};
+    const cell = (key, fmt) => ({ v: p[key] === undefined ? -1 : p[key], html: (p[key] === undefined ? '—' : fmtMetric(p[key], fmt)) + ' ' + (pc[key] !== undefined ? pctPill(pc[key]) : ''), align: 'right' });
+    return { cells: [
+      { v: p.name, html: playerLink(p.player_id, p.name) },
+      { v: p.position || (p.is_gk ? 'G' : ''), html: (p.position || p.is_gk) ? '<span class="pos-badge pos-' + esc(p.position || 'G') + '">' + esc(p.position || 'G') + '</span>' : '', align: 'center' },
+      { v: p.age || 0, html: p.age || '—', align: 'right' }, { v: p.matches, align: 'right' }, { v: p.starts || 0, align: 'right' }, { v: p.minutes, align: 'right' },
+      { v: p.goals, align: 'right' }, { v: p.assists, align: 'right' }, { v: p.xg, html: num(p.xg, 2), align: 'right' }, { v: p.xa, html: num(p.xa, 2), align: 'right' },
+      p.is_gk ? cell('save_pct', 'pct') : cell('npxg_90', '2'), p.is_gk ? cell('goals_prevented_90', '2') : cell('xa_90', '2'), cell('pass_pct', 'pct'), cell('rating', '2')
+    ] };
+  }), { sticky: true }) : '<div class="muted">No squad data yet.</div>');
+  sortableIn('tp-squad');
+}
+
+/* The competition's club page, kept for clubs whose id is unknown (the router
+   forwards every other club to the unified #/club/<tid> page). */
+function renderTeamPage(param) {
+  const d = D();
+  const c = comp() || {};
+  const team = findTeamBySlug(param) || decodeURIComponent(param);
+  const pane = document.getElementById('tab-page');
+  const t = d.table || {};
+  pane.innerHTML = pageHeader(crest(team, null, 'xl'), esc(team), esc(c.name) + (t.season ? ' · ' + esc(t.season) : ''), '') +
+    '<div id="tp-dossier"></div><div class="card"><div class="card-header">Matches <span class="card-sub">Results with xG; fixtures with the model\'s line.</span></div><div id="tp-matches"></div></div>';
+  renderClubDossier(document.getElementById('tp-dossier'), team);
+  const fx = ((d.fixtures || {}).matches || []).filter(f => f.home === team || f.away === team);
   // Match list: every competition the club plays in, when the cross-competition
   // list exists; the league's fixtures otherwise.
   const drawMatches = (list, withComp) => {
@@ -297,7 +325,7 @@ function renderTeamPage(param) {
       const href = f.detail ? matchHref(f.id, compSlug) : null;
       return { _href: href, cells: [
         { v: f.date || '', html: esc(fmtDate(f.date, true)) }].concat(withComp ? [{ v: f.cn || '', html: (compSlug === c.slug ? '<strong>' + esc(f.cn || '') + '</strong>' : '<a href="#/' + esc(compSlug) + '/fixtures">' + esc(f.cn || compSlug) + '</a>') }] : []).concat([
-        { v: f.round === null || f.round === undefined ? '' : f.round, html: esc(ROUND_LABELS[f.round] || f.round || ''), align: 'right' },
+        { v: f.round === null || f.round === undefined ? '' : f.round, html: esc(FH.roundText(f, compSlug, true)), align: 'right' },
         { v: opp, html: compSlug === c.slug ? teamLink(opp) : esc(opp) }, { v: home ? 'H' : 'A', align: 'center' },
         { v: done ? gf - ga : -99, html: res, align: 'center' }, { v: '', html: xg, align: 'center' }, { v: '', html: model, align: 'center' },
         { v: '', html: href ? '<a href="' + esc(href) + '">Analysis →</a>' : '' }
@@ -313,24 +341,6 @@ function renderTeamPage(param) {
     if (all && all.length > fx.length) drawMatches(all, true);
   });
 
-  // Squad.
-  const squad = ((d.players_live || {}).players || []).filter(p => p.team === team).sort((a, b) => b.minutes - a.minutes);
-  setHTML('tp-squad', squad.length ? tableHTML([
-    { label: 'Player' }, { label: 'Pos', align: 'center' }, { label: 'Age', align: 'right' }, { label: 'Apps', align: 'right' }, { label: 'Starts', align: 'right' },
-    { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' },
-    { label: 'npxG/90', align: 'right' }, { label: 'xA/90', align: 'right' }, { label: 'Pass %', align: 'right' }, { label: 'Rating', align: 'right' }
-  ], squad.map(p => {
-    const pc = p.pct || {};
-    const cell = (key, fmt) => ({ v: p[key] === undefined ? -1 : p[key], html: (p[key] === undefined ? '—' : fmtMetric(p[key], fmt)) + ' ' + (pc[key] !== undefined ? pctPill(pc[key]) : ''), align: 'right' });
-    return { cells: [
-      { v: p.name, html: playerLink(p.player_id, p.name) },
-      { v: p.position || '', html: p.position ? '<span class="pos-badge pos-' + esc(p.position) + '">' + esc(p.position) + '</span>' : '', align: 'center' },
-      { v: p.age || 0, html: p.age || '—', align: 'right' }, { v: p.matches, align: 'right' }, { v: p.starts || 0, align: 'right' }, { v: p.minutes, align: 'right' },
-      { v: p.goals, align: 'right' }, { v: p.assists, align: 'right' }, { v: p.xg, html: num(p.xg, 2), align: 'right' }, { v: p.xa, html: num(p.xa, 2), align: 'right' },
-      p.is_gk ? cell('save_pct', 'pct') : cell('npxg_90', '2'), p.is_gk ? cell('goals_prevented_90', '2') : cell('xa_90', '2'), cell('pass_pct', 'pct'), cell('rating', '2')
-    ] };
-  }), { sticky: true }) : '<div class="muted">No squad data yet.</div>');
-  sortableIn('tp-squad');
 }
 
 // ── player page ────────────────────────────────────────────────────────────
@@ -345,15 +355,21 @@ const LOG_COLS_GK = [
   ['hc', 'Claims', 'int'], ['pun', 'Punch', 'int'], ['pa', 'Pass', 'int'], ['pt', 'Att', 'int'], ['lb', 'Long', 'int'], ['lbt', 'Att', 'int'], ['tch', 'Touch', 'int'], ['km', 'Km', '1']
 ];
 
-function renderPlayerPage(param) {
+/* A player's season in the open competition: percentile sliders, the radar,
+   rating by match, the shot map, evolution and the full match log (from the
+   club's shard). Rendered into `el`; the person page calls it inside
+   FH.withComp(slug, ...) with players_live loaded. `opts.tiles` adds the
+   competition's season tiles. Returns false when the player has no line. */
+function renderPlayerDossier(el, pid, opts) {
+  const o = opts || {};
   const d = D();
   const c = comp() || {};
+  const slug = c.slug;
   const live = d.players_live || {};
   const players = live.players || [];
   const metrics = live.metrics || [];
-  const p = players.find(x => String(x.player_id) === String(param));
-  const pane = document.getElementById('tab-page');
-  if (!p) { pane.innerHTML = '<div class="error-banner">No player with id ' + esc(param) + ' in ' + esc(c.name || 'this competition') + '.</div>'; return; }
+  const p = players.find(x => String(x.player_id) === String(pid));
+  if (!p) { el.innerHTML = '<div class="card"><div class="muted">No line for this player in ' + esc(c.name || 'this competition') + ' this season.</div></div>'; return false; }
   const posLabel = (live.positions || {})[p.position] || (p.is_gk ? 'Goalkeeper' : 'Outfield');
   const sub = [teamLink(p.team), esc(c.name)].join(' · ');
   const chips = [];
@@ -364,7 +380,7 @@ function renderPlayerPage(param) {
   if (p.shirt) chips.push('<span class="chip">#' + esc(p.shirt) + '</span>');
   if (p.pool) chips.push('<span class="chip">' + esc(p.pool.label) + ' pool · ' + p.pool.n + ' qualified</span>');
   else chips.push('<span class="chip warn">below ' + (live.minutes_floor || 0) + ' minutes: no percentiles yet</span>');
-  let html = pageHeader('<span class="ph-initials">' + esc(p.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()) + '</span>', esc(p.name), sub, chips.join(''));
+  let html = '<div class="ph-chips dossier-chips">' + chips.slice(-1).join('') + '</div>';
 
   const tiles = [
     statTile('Appearances', p.matches + ' <span class="kpi-dim">(' + (p.starts || 0) + ' starts)</span>', p.minutes + ' minutes'),
@@ -374,7 +390,7 @@ function renderPlayerPage(param) {
     statTile('Rating', p.rating === undefined || p.rating === null ? '—' : num(p.rating, 2), p.pct && p.pct.rating !== undefined ? 'percentile ' + p.pct.rating : 'minutes-weighted'),
     statTile('Cards', (p.yellow || 0) + ' <span class="kpi-dim">Y</span> ' + (p.red || 0) + ' <span class="kpi-dim">R</span>', p.fouls !== undefined ? p.fouls + ' fouls · ' + (p.fouled || 0) + ' fouled' : '')
   ];
-  html += '<div class="kpi-grid six">' + tiles.join('') + '</div>';
+  if (o.tiles) html += '<div class="kpi-grid six">' + tiles.join('') + '</div>';
 
   // Percentile sliders by group.
   const scope = p.is_gk ? 'gk' : 'out';
@@ -392,39 +408,14 @@ function renderPlayerPage(param) {
     '<div class="card-header">Shot map <span class="card-sub">Every shot this season; size by xG.</span></div><div id="pp-shots" style="height:420px"></div></div></div>';
   html += '<div class="card"><div class="card-header">Evolution this season <span class="card-sub">Cumulative goals against cumulative xG by match, and the five-match rolling rating.</span></div>' +
     '<div class="grid-2"><div id="pp-evo" style="height:300px"></div><div id="pp-roll" style="height:300px"></div></div></div>';
-  html += '<div class="card"><div class="card-header">All competitions this season <span class="card-sub" id="pp-all-sub">Club, cups and national team, from every store the site follows.</span></div><div id="pp-all"></div></div>';
-  html += '<div class="card"><div class="card-header">Match log <span class="card-sub" id="pp-log-sub">Loading…</span></div><div id="pp-log"></div></div>';
-  html += '<div class="card"><div class="muted"><a href="#/player/' + esc(p.player_id) + '">Career, season by season →</a> &nbsp;·&nbsp; <a href="#/compare/players/' + esc(c.slug) + ':' + esc(p.player_id) + '">Compare with another player →</a> &nbsp;·&nbsp; <a href="#/leaders">Global leaders →</a> &nbsp;·&nbsp; <a href="#/lab/' + esc(c.slug) + '/' + esc(p.position === 'G' ? 'G' : (p.position || 'M')) + '">Compare in the Player lab →</a></div></div>';
-  pane.innerHTML = html;
-
-  FH.loadSite('season_index.json').then(idx => {
-    if (FH.STATE.page !== 'player' || FH.STATE.param !== param) return;
-    const rows = (((idx || {}).players || {})[String(p.player_id)] || {}).rows || [];
-    if (!rows.length) { setHTML('pp-all', '<div class="muted">Only this competition so far.</div>'); return; }
-    const tot = rows.reduce((s, r) => { ['apps', 'min', 'g', 'a', 'xg', 'xa'].forEach(k => { s[k] = (s[k] || 0) + (r[k] || 0); }); s.rw += (r.rt || 0) * (r.min || 0); return s; }, { rw: 0 });
-    const order = { league: 0, cup: 1, domestic: 2, super: 3, international: 4 };
-    rows.sort((x, y) => (order[x.fam] || 0) - (order[y.fam] || 0) || (y.min || 0) - (x.min || 0));
-    setHTML('pp-all', tableHTML([
-      { label: 'Competition' }, { label: 'For' }, { label: 'Apps', align: 'right' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' },
-      { label: 'xG', align: 'right' }, { label: 'xA', align: 'right' }, { label: 'Shots', align: 'right' }, { label: 'KP', align: 'right' }, { label: 'Cards', align: 'right' }, { label: 'Rating', align: 'right' }
-    ], rows.map(r => ({ cells: [
-      { v: r.cn, html: (r.comp === c.slug ? '<strong>' + esc(r.cn) + '</strong>' : '<a href="#/' + esc(r.comp) + '/player/' + esc(p.player_id) + '">' + esc(r.cn) + '</a>') + ' <span class="chip">' + esc((FH.FAMILY_LABELS || {})[r.fam] || (r.fam === 'league' ? 'League' : r.fam || '')) + '</span>' },
-      { v: r.t, html: esc(r.t) }, { v: r.apps || 0, align: 'right' }, { v: r.min || 0, align: 'right' }, { v: r.g || 0, align: 'right' }, { v: r.a || 0, align: 'right' },
-      { v: r.xg || 0, html: num(r.xg, 2), align: 'right' }, { v: r.xa || 0, html: num(r.xa, 2), align: 'right' }, { v: r.sh || 0, align: 'right' }, { v: r.kp || 0, align: 'right' },
-      { v: (r.y || 0) + (r.r || 0), html: (r.y || 0) + '<span class="muted-inline">Y</span> ' + (r.r || 0) + '<span class="muted-inline">R</span>', align: 'right' },
-      { v: r.rt || 0, html: r.rt ? num(r.rt, 2) : '—', align: 'right' }
-    ] })).concat([{ _class: 'total-row', cells: [
-      { v: 'Total', html: '<strong>All competitions</strong>' }, { v: '' }, { v: tot.apps, html: '<strong>' + tot.apps + '</strong>', align: 'right' }, { v: tot.min, html: '<strong>' + tot.min + '</strong>', align: 'right' },
-      { v: tot.g, html: '<strong>' + tot.g + '</strong>', align: 'right' }, { v: tot.a, html: '<strong>' + tot.a + '</strong>', align: 'right' },
-      { v: tot.xg, html: '<strong>' + num(tot.xg, 2) + '</strong>', align: 'right' }, { v: tot.xa, html: '<strong>' + num(tot.xa, 2) + '</strong>', align: 'right' },
-      { v: '' }, { v: '' }, { v: '' }, { v: tot.min ? tot.rw / tot.min : 0, html: tot.min && tot.rw ? '<strong>' + num(tot.rw / tot.min, 2) + '</strong>' : '—', align: 'right' }
-    ] }])));
-  });
+  html += '<div class="card"><div class="card-header">Match log in ' + esc(c.name) + ' <span class="card-sub" id="pp-log-sub">Loading…</span></div><div id="pp-log"></div></div>';
+  el.innerHTML = html;
 
   renderRadar('pp-radar', p.is_gk ? RADAR_GK : RADAR_OUT, [p]);
 
-  loadShard('players/' + ((((D().teams || {}).teams || {})[p.team] || {}).slug || FH.slugify(p.team)) + '.json').then(shard => {
-    if (FH.STATE.page !== 'player' || FH.STATE.param !== param) return;
+  const token = (renderPlayerDossier.token = (renderPlayerDossier.token || 0) + 1);
+  loadShard('players/' + ((((D().teams || {}).teams || {})[p.team] || {}).slug || FH.slugify(p.team)) + '.json').then(shard => FH.withComp(slug, () => {
+    if (token !== renderPlayerDossier.token || !document.getElementById('pp-log')) return;
     const entry = shard && shard.players ? shard.players[String(p.player_id)] : null;
     const rows = entry ? entry.matches : [];
     setHTML('pp-log-sub', rows.length ? rows.length + ' matches, newest first' : 'No match log available.');
@@ -467,7 +458,8 @@ function renderPlayerPage(param) {
     const shots = [];
     rows.forEach(r => (r.shots || []).forEach(s => shots.push(Object.assign({}, s, { match: (r.ha === 'H' ? 'v ' : '@ ') + r.opp + ' ' + r.gf + '-' + r.ga }))));
     if (shots.length) renderShotMap('pp-shots', shots); else setHTML('pp-shots', '<div class="muted">' + (p.is_gk ? 'Goalkeepers rarely shoot.' : 'No shots recorded.') + '</div>');
-  });
+  }));
+  return true;
 }
 
 // ── match page ─────────────────────────────────────────────────────────────
@@ -475,7 +467,10 @@ function renderPlayerPage(param) {
 // Team-stat sheet rows shown on a match page, in order, with labels.
 // ── wiring ─────────────────────────────────────────────────────────────────
 
-Object.assign(FH.PAGES, { team: renderTeamPage, player: renderPlayerPage });   // match: match.js
+Object.assign(FH.PAGES, { team: renderTeamPage });   // match: match.js; players: the person page (people.js)
+FH.renderClubDossier = renderClubDossier;
+FH.renderPlayerDossier = renderPlayerDossier;
+FH.pageHeader = pageHeader;
 Object.assign(FH.PAGE_NEEDS, {
   team: ['probs', 'strength', 'table', 'zones', 'team_stats', 'fixtures', 'players_live', 'analytics'],
   player: ['players_live'],

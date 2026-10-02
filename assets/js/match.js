@@ -451,7 +451,7 @@ function matchHeader(f, m, c) {
   const finished = f.status === 'finished' || f.status === 'live' || (m && m.hs !== null && m.hs !== undefined);
   const hs = m ? m.hs : f.hs, as = m ? m.as : f.as;
   const xg = (m && m.xg) ? m.xg : f.xg;
-  const roundTxt = f.round !== null && f.round !== undefined ? (ROUND_LABELS[f.round] || ((f.stage === 'league' || !f.stage) ? 'Round ' + f.round : String(f.round))) : '';
+  const roundTxt = FH.roundText(f);
   return '<div class="match-header">' +
     '<div class="mh-meta"><a href="#/' + esc(c.slug) + '/fixtures">' + esc(c.name) + '</a> · ' + esc(fmtDate(f.date, true)) + (fmtTime(f.date) ? ' ' + esc(fmtTime(f.date)) : '') + (roundTxt ? ' · ' + esc(roundTxt) : '') + (f.group ? ' · Group ' + esc(f.group) : '') + '</div>' +
     '<div class="mh-main">' +

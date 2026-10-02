@@ -3,7 +3,7 @@
  *   a header band: today's numbers and the quick links
  *   the scoreboard: results and fixtures by day, grouped by competition
  *   the competitions: cards by family with a filter
- *   across the site: title races, leaders, the Ballon d'Or race, national teams
+ *   across the site: title races, leaders, national teams, competitions between editions
  *
  * Replaces the hub renderer in pages.js (this file loads last). Reads
  * competitions.json (INDEX), hub.json, and two small site-wide payloads. */
@@ -19,6 +19,11 @@ const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MONTHS = ['Jan',
 const FAMILIES = [['all', 'All'], ['league', 'Leagues'], ['cup', 'Continental & world'], ['domestic', 'National cups'], ['super', 'Super cups'], ['international', 'National teams']];
 
 function famOf(c) { return c.kind !== 'cup' ? 'league' : (c.family || 'cup'); }
+/* Crest files are named by team id (assets/crests/<tid>.png): the unified club page without a lookup. */
+function tidFromCrest(src) { const m = /crests\/(\d+)\.png$/.exec(String(src || '')); return m ? m[1] : null; }
+function clubHrefOf(team, slug, src) { const t = tidFromCrest(src); return t ? FH.clubHref(t, slug) : teamHref(team, slug); }
+/* The first past season of a competition, when competitions.json lists them. */
+function pastSeason(c) { return (c.seasons || []).find(s => s.source !== 'live') || null; }
 function firstTab(c) { return (c.tabs || ['overview'])[0]; }
 
 // ── header band ────────────────────────────────────────────────────────────
@@ -32,9 +37,10 @@ function renderBand() {
   const inPlay = all.filter(i => i.status === 'live');
   const d = new Date();
   setHTML('hub-date', DAYS[d.getDay()] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()]);
+  const between = live.filter(c => FH.isLastEdition(c)).length;
   setHTML('hub-stats',
     tile(todays.length, 'matches today') + tile(inPlay.length, 'in play', inPlay.length ? 'live' : '') +
-    tile(live.length, 'competitions live') + tile(comps.length - live.length, 'coming soon'));
+    tile(live.length - between, 'competitions in season') + tile(between, 'between editions'));
   const upd = hub.updated_at || INDEX.updated_at;
   setHTML('hub-updated', upd ? 'Updated ' + esc(FH.fmtStamp(upd)) : '');
 }
@@ -85,12 +91,12 @@ function row(it, slug, showDate) {
   const href = it.detail ? matchHref(it.id, slug) : '#/' + slug + '/fixtures';
   const done = it.status === 'finished' || it.status === 'live';
   const when = showDate ? '<span class="sb-when">' + esc(fmtDate(it.date)) + '</span>' : '';
-  const tag = it.round && it.stage !== 'league' ? '<span class="sb-round">' + esc(ROUND_LABELS[it.round] || it.round) + '</span>' : '';
+  const tag = it.round && it.stage !== 'league' ? '<span class="sb-round">' + esc(FH.roundText(it, it.comp)) + '</span>' : '';
   return '<div class="sb-row' + (it.status === 'live' ? ' live' : '') + '" data-href="' + esc(href) + '">' +
     '<div class="sb-meta">' + when + statusChip(it) + tag + '</div>' +
-    '<div class="sb-h"><a href="' + esc(teamHref(it.home, slug)) + '">' + esc(it.home) + '</a>' + crest(it.home, it.crests && it.crests[0]) + '</div>' +
+    '<div class="sb-h"><a href="' + esc(clubHrefOf(it.home, slug, it.crests && it.crests[0])) + '">' + esc(it.home) + '</a>' + crest(it.home, it.crests && it.crests[0]) + '</div>' +
     '<div class="sb-score">' + (done ? '<b>' + it.hs + '</b><span>–</span><b>' + it.as + '</b>' : '<span class="vs">v</span>') + '</div>' +
-    '<div class="sb-a">' + crest(it.away, it.crests && it.crests[1]) + '<a href="' + esc(teamHref(it.away, slug)) + '">' + esc(it.away) + '</a></div>' +
+    '<div class="sb-a">' + crest(it.away, it.crests && it.crests[1]) + '<a href="' + esc(clubHrefOf(it.away, slug, it.crests && it.crests[1])) + '">' + esc(it.away) + '</a></div>' +
     '<div class="sb-extra">' + (done ? (it.xg ? '<span class="xg-line">xG ' + num(it.xg[0], 2) + '–' + num(it.xg[1], 2) + '</span>' : '') : (it.model ? probBar(it.model, { small: true }) : '')) + '</div>' +
     '</div>';
 }
@@ -116,7 +122,11 @@ function card(c) {
   const frac = c.games_total ? Math.min(1, (c.games_played || 0) / c.games_total) : 0;
   const tabs = c.tabs || [];
   const link = (t, label) => tabs.indexOf(t) >= 0 ? '<a href="#/' + esc(c.slug) + '/' + t + '">' + label + '</a>' : '';
-  const fav = c.favourite
+  const last = FH.isLastEdition(c), lastSeason = FH.currentSeason(c).season;
+  const won = c.winner && c.winner.team ? c.winner.team : (c.favourite && (c.complete || (c.p_favourite || 0) >= 0.995) ? c.favourite : null);
+  const fav = last
+    ? '<div class="cc-fav"><span class="cc-fav-l">Last edition</span><span class="cc-fav-t">' + esc(lastSeason) + (won ? ' · won by ' + esc(won) : '') + '</span></div>'
+    : c.favourite
     ? '<div class="cc-fav"><span class="cc-fav-l">' + esc(c.favourite_label || 'Title') + '</span><span class="cc-fav-t">' + esc(c.favourite) + '</span><span class="cc-fav-p">' + pct(c.p_favourite) + '</span></div>' +
       '<div class="cc-bar"><div style="width:' + ((c.p_favourite || 0) * 100).toFixed(1) + '%"></div></div>'
     : '<div class="cc-fav muted-inline">' + esc(c.unsimulated ? 'Not simulated: tables as played' : (c.reason || '')) + '</div>';
@@ -126,7 +136,9 @@ function card(c) {
   const nxt = c.next ? '<div class="cc-next">' + esc(fmtDate(c.next.date)) + ' ' + esc(fmtTime(c.next.date)) + ' · ' + esc(c.next.home) + ' v ' + esc(c.next.away) + '</div>' : '';
   const chips = [];
   if (c.phase === 'pre') chips.push('<span class="chip">not started</span>');
-  if (c.complete) chips.push('<span class="chip">complete</span>');
+  if (last) chips.push('<span class="chip warn" title="The latest edition in the data has finished; the next appears once its fixtures are published">between editions</span>');
+  else if (c.complete) chips.push('<span class="chip">complete</span>');
+  const ps = pastSeason(c);
   if (c.synthetic) chips.push('<span class="chip warn">sample data</span>');
   if (c.store_fresh === false) chips.push('<span class="chip warn">stale</span>');
   return '<div class="cc">' +
@@ -134,7 +146,8 @@ function card(c) {
     fav +
     '<div class="cc-progress" title="' + (c.games_played || 0) + ' of ' + (c.games_total || 0) + ' played"><div style="width:' + (frac * 100).toFixed(1) + '%"></div></div>' +
     (facts.length ? '<div class="cc-facts">' + facts.join('') + '</div>' : '') + nxt +
-    '<div class="cc-links">' + [link('table', 'Table'), link('fixtures', 'Fixtures'), link('analytics', 'Analytics'), link('players', 'Players'), link('probs', 'Odds')].filter(Boolean).join('') + chips.join('') + '</div>' +
+    '<div class="cc-links">' + [link('table', 'Table'), link('fixtures', 'Fixtures'), link('analytics', 'Analytics'), link('players', 'Players'), last ? '' : link('probs', 'Odds'),
+      ps ? '<a href="#/' + esc(c.slug) + '/p-table?s=' + esc(ps.sid) + '" title="Earlier editions, from ' + esc(ps.season) + '">Past seasons</a>' : ''].filter(Boolean).join('') + chips.join('') + '</div>' +
     '</div>';
 }
 
@@ -142,7 +155,7 @@ function card(c) {
 
 function renderRaces() {
   // Only races still open: a decided cup at 100% is a result, not a race.
-  const rows = INDEX.competitions.filter(c => c.ok && c.favourite && c.p_favourite && !c.complete && c.p_favourite < 0.995).sort((a, b) => b.p_favourite - a.p_favourite);
+  const rows = INDEX.competitions.filter(c => c.ok && c.favourite && c.p_favourite && !c.complete && !FH.isLastEdition(c) && c.p_favourite < 0.995).sort((a, b) => b.p_favourite - a.p_favourite);
   setHTML('hub-races', rows.length ? rows.slice(0, 14).map(c =>
     '<a class="race" href="#/' + esc(c.slug) + '/probs"><span class="race-c">' + esc(c.short_name || c.name) + '</span><span class="race-t">' + esc(c.favourite) + '</span>' +
     '<span class="race-bar"><span style="width:' + (c.p_favourite * 100).toFixed(1) + '%"></span></span><span class="race-p">' + pct(c.p_favourite) + '</span></a>').join('') : '<div class="muted">Nothing simulated yet.</div>');
@@ -159,15 +172,12 @@ function renderLeaders() {
 }
 
 function renderTeasers() {
-  loadSite('ballon-dor/ballon_dor.json').then(b => {
-    const ed = (b || {}).edition;
-    if (!ed || !(ed.candidates || []).length) { setHTML('hub-bd', '<div class="muted">Not built yet.</div>'); return; }
-    const top = ed.candidates.slice().sort((x, y) => (y.model || 0) - (x.model || 0)).slice(0, 5);
-    setHTML('hub-bd', '<div class="tz-sub">' + esc(ed.season) + ' · ceremony ' + esc(fmtDate(ed.ceremony, true)) + '</div>' + top.map((c, i) =>
-      '<div class="tz-row"><span class="mini-rank">' + (i + 1) + '</span><span class="tz-name">' + esc(c.name) + '<span class="mini-sub">' + esc(c.club) + '</span></span>' +
-      '<span class="tz-v">' + pct(c.model) + '<span class="mini-sub">market ' + (c.market === null || c.market === undefined ? '—' : pct(c.market)) + '</span></span></div>').join('') +
-      '<a class="tz-more" href="#/ballon-dor">Model against market →</a>');
-  });
+  const last = INDEX.competitions.filter(c => c.ok && FH.isLastEdition(c));
+  setHTML('hub-last', last.length ? last.map(c => {
+    const won = c.winner && c.winner.team ? c.winner.team : (c.favourite && (c.complete || (c.p_favourite || 0) >= 0.995) ? c.favourite : null);
+    return '<a class="tz-row" href="#/' + esc(c.slug) + '/' + firstTab(c) + '"><span class="tz-name">' + esc(c.name) + '<span class="mini-sub">' + esc(FAMILY_LABELS[c.family] || c.country || '') + '</span></span>' +
+      '<span class="tz-v">' + esc(FH.currentSeason(c).season) + '<span class="mini-sub">' + (won ? esc(won) : 'last edition') + '</span></span></a>';
+  }).join('') : '<div class="muted">Every competition followed has an edition in progress.</div>');
   loadSite('nations.json').then(n => {
     const t = (n || {}).teams || [];
     if (!t.length) { setHTML('hub-nations', '<div class="muted">No international fit yet.</div>'); return; }

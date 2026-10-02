@@ -7,14 +7,14 @@
 <meta name="theme-color" content="#0d1117">
 <meta property="og:site_name" content="The Quant Footballer">
 <meta property="og:title" content="The Quant Footballer">
-<meta property="og:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<meta property="og:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with every past season and one page per player and per club.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://pchattani.github.io/the-quant-footballer/">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:title" content="The Quant Footballer">
-<meta name="twitter:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<meta name="twitter:description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with every past season and one page per player and per club.">
 <link rel="canonical" href="https://pchattani.github.io/the-quant-footballer/">
-<meta name="description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with a Ballon d'Or model priced against the market.">
+<meta name="description" content="Football through a quant's lens: Monte Carlo title, qualification and cup odds, fair prices, xG, and Baseball-Savant-style club and player analytics across 69 leagues, cups and national-team competitions, with every past season and one page per player and per club.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1117'/%3E%3Ccircle cx='16' cy='16' r='9' fill='none' stroke='%2358a6ff' stroke-width='2.5'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="assets/style.css">
 <link rel="stylesheet" href="assets/analytics.css">
@@ -41,6 +41,10 @@
         <label for="comp-select">Competition</label>
         <select id="comp-select"><option value="">Hub — all competitions</option></select>
       </div>
+      <div class="comp-picker season-picker" id="season-picker" hidden>
+        <label for="season-select">Season</label>
+        <select id="season-select"></select>
+      </div>
       <a class="sister-link" href="https://pchattani.github.io/the-quant-paddock/" title="The sister site: Formula 1 odds, race simulations, telemetry and analytics">🏁 The Quant Paddock (F1)</a>
       <a class="sister-link" href="https://pchattani.github.io/the-quant-hardwood/" title="The sister site: NBA and WNBA odds, season simulations, shot charts and analytics">🏀 The Quant Hardwood</a>
       <a class="sister-link" href="https://pchattani.github.io/the-quant-ace/" title="The sister site: ATP and WTA odds, exact match models, draw simulations and analytics">🎾 The Quant Ace</a>
@@ -48,7 +52,7 @@
       <a class="sister-link" href="https://pchattani.github.io/the-quant-gridiron/" title="The sister site: NFL odds, models and analytics">🏈 The Quant Gridiron</a>
       <a class="sister-link" href="https://pchattani.github.io/the-quant-rink/" title="The sister site: NHL odds, models and analytics">🏒 The Quant Rink</a>
       <nav class="global-nav">
-        <a href="#/">Hub</a><a href="#/clubs">Clubs across leagues</a><a href="#/nations">National teams</a><a href="#/leaders">Global leaders</a><a href="#/lab">Player lab</a><a href="#/ballon-dor">Ballon d'Or</a><a href="#/compare">Compare</a><a href="#/glossary">Glossary</a><a href="#/methodology">Methodology</a>
+        <a href="#/">Hub</a><a href="#/clubs">Clubs across leagues</a><a href="#/nations">National teams</a><a href="#/leaders">Global leaders</a><a href="#/lab">Player lab</a><a href="#/compare">Compare</a><a href="#/glossary">Glossary</a><a href="#/methodology">Methodology</a>
       </nav>
       <div class="site-sub"><span id="meta-line">—</span></div>
     </div>
@@ -80,7 +84,6 @@
         <a href="#/nations"><b>National teams</b><span>Ratings and a pricer for any pairing</span></a>
         <a href="#/leaders"><b>Global leaders</b><span>Raw and league-adjusted rates</span></a>
         <a href="#/compare"><b>Compare</b><span>Two players or two clubs, side by side</span></a>
-        <a href="#/ballon-dor"><b>Ballon d'Or</b><span>The model against the market</span></a>
         <a href="#/glossary"><b>Glossary</b><span>What every number means</span></a>
         <a href="#/methodology"><b>Methodology</b><span>How the models work</span></a>
       </div></div>
@@ -98,8 +101,8 @@
     <div class="hub-row">
       <div class="card"><div class="card-header">Title races <span class="card-sub">The favourite in each competition.</span></div><div id="hub-races"></div></div>
       <div class="card"><div class="card-header">Leaders across competitions</div><div class="pad" id="hub-leaders"></div></div>
-      <div class="card"><div class="card-header">Ballon d'Or race <span class="card-sub">Model, with the market beside it.</span></div><div id="hub-bd"></div>
-        <div class="card-header">Strongest national teams</div><div id="hub-nations"></div></div>
+      <div class="card"><div class="card-header">Strongest national teams</div><div id="hub-nations"></div>
+        <div class="card-header">Between editions <span class="card-sub">No edition in progress: the last one, as it finished.</span></div><div id="hub-last"></div></div>
     </div>
   </div>
 
@@ -126,6 +129,10 @@
         <div class="card-header">Leaders</div>
         <div class="pad" id="ov-leaders"></div>
       </div>
+    </div>
+    <div class="card">
+      <div class="card-header">Every season <span class="card-sub">Past editions: final tables, results and leaders. Also in the season picker above.</span></div>
+      <div class="pad" id="ov-seasons"></div>
     </div>
   </div>
 
@@ -423,8 +430,7 @@
         <h5>5. No affiliation; trademarks</h5>
         <p>This site is not affiliated with, endorsed by, sponsored by or connected to any club, league, competition,
         governing body (including FIFA, UEFA, CONMEBOL, CONCACAF, CAF and AFC), player, data provider, betting operator
-        or prediction market. The Ballon d&rsquo;Or model is an independent estimate with no connection to France Football
-        or the award&rsquo;s organisers. Club and competition names, crests, logos and other marks are the property of
+        or prediction market. Club and competition names, crests, logos and other marks are the property of
         their respective owners and appear only to identify the teams and competitions discussed. Player names are used
         only to report factual sporting statistics.</p>
 
@@ -538,48 +544,13 @@
     </div>
   </div>
 
-  <!-- ── Ballon d'Or ───────────────────────────────────────────────────── -->
-  <div id="tab-ballondor" class="tab-pane">
-    <div class="card">
-      <div class="card-header">Ballon d'Or <span class="card-sub" id="bd-sub"></span></div>
-      <div id="bd-notes" class="pad"></div>
-      <div id="bd-table"></div>
-    </div>
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-header">Model against market</div>
-        <div id="bd-chart" style="height:420px;"></div>
-      </div>
-      <div class="card">
-        <div class="card-header">Market <span class="card-sub">Polymarket: win, top-3 and top-5 markets, implied from YES prices.</span></div>
-        <div id="bd-market"></div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header">How the two have moved <span class="card-sub">Model (solid) and market (dotted) per hourly run.</span></div>
-      <div id="bd-history" style="height:360px;"></div>
-    </div>
-    <div class="card">
-      <div class="card-header">Next year's race <span class="card-sub" id="bd-next-sub"></span></div>
-      <div id="bd-next"></div>
-    </div>
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-header">Past winners</div>
-        <div id="bd-winners"></div>
-      </div>
-      <div class="card">
-        <div class="card-header">The model</div>
-        <div id="bd-method" class="prose-dark pad"></div>
-        <div id="bd-weights"></div>
-      </div>
-    </div>
-  </div>
-
   <!-- ── Compare ───────────────────────────────────────────────────────── -->
   <div id="tab-compare" class="tab-pane"></div>
 
-  <!-- ── Club / player / match / career pages ──────────────────────────── -->
+  <!-- ── A past season of a competition (seasons.js) ─────────────────── -->
+  <div id="tab-past" class="tab-pane"></div>
+
+  <!-- ── Person, club and match pages ──────────────────────────────────── -->
   <div id="tab-page" class="tab-pane"></div>
 
 </div>
@@ -626,6 +597,8 @@
 <script src="assets/js/match.js"></script>
 <script src="assets/js/lab.js"></script>
 <script src="assets/js/analytics.js"></script>
+<script src="assets/js/seasons.js"></script>
+<script src="assets/js/people.js"></script>
 <script src="assets/js/docs.js"></script>
 <script src="assets/js/hub.js"></script>
 </body>
