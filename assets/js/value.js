@@ -447,8 +447,8 @@ function oddsTable(o) {
   return tableHTML([{ label: '' }, { label: 'Now', align: 'right' }, { label: 'After', align: 'right' }, { label: 'Change', align: 'right' }],
     o.rows.map(r => ({ cells: [{ v: r.label, html: esc(r.label) },
       { v: r.base, html: r.pts ? num(r.base, 1) : pct(r.base, 1), align: 'right' }, { v: r.after, html: '<strong>' + (r.pts ? num(r.after, 1) : pct(r.after, 1)) + '</strong>', align: 'right' },
-      { v: r.diff, html: '<span class="' + (Math.abs(r.diff) < (r.pts ? 0.05 : 0.0005) ? 'muted-inline' : ((r.label === 'Relegation' || /relegation/i.test(r.label)) ? (r.diff > 0 ? 'vdown' : 'vup') : (r.diff > 0 ? 'vup' : 'vdown'))) + '">' + (r.pts ? signed(r.diff, 1) : signed(r.diff * 100, 1) + ' pts') + '</span>', align: 'right' }] })), { compact: true }) +
-    '<div class="pad vsmall muted-inline">From re-running the season simulation with the club\'s strength shifted (' + (o.n || 0).toLocaleString('en-US') + ' runs per shift, common random numbers) and applying the change to the published probabilities' +
+      { v: r.diff, html: '<span class="' + (Math.abs(r.diff) < (r.pts ? 0.05 : 0.0005) ? 'muted-inline' : ((r.label === 'Relegation' || /relegation/i.test(r.label)) ? (r.diff > 0 ? 'vdown' : 'vup') : (r.diff > 0 ? 'vup' : 'vdown'))) + '">' + (r.pts ? signed(r.diff, 1) : signed(r.diff * 100, 1) + ' pp') + '</span>', align: 'right' }] })), { compact: true }) +
+    '<div class="pad vsmall muted-inline">Changes in probabilities are in percentage points (pp). From re-running the season simulation with the club\'s strength shifted (' + (o.n || 0).toLocaleString('en-US') + ' runs per shift, common random numbers) and applying the change to the published probabilities' +
     (o.remaining ? '; ' + o.remaining + ' league matches left' : '') + '.' + (o.clamped ? ' The shift is beyond the simulated range, so the change is capped at its edge.' : '') + '</div>';
 }
 
