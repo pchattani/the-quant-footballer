@@ -448,3 +448,81 @@ Where this section and sections 1-4 differ, this section is what the build write
   transfer has one line for two clubs); archive rows carry `tid` when one club matches
   the archive's spelling; shirt numbers come from club competitions only; every player
   a competition's `players_live.json` lists has a person file.
+
+---
+
+## 11. As built (15 October 2026): slimmer person files, the value payloads
+
+### 11.1 `people/<pid>.json` is slimmer
+
+The deployed site was 712 MB of GitHub Pages' 1 GB, with `data/people/` the fastest-growing part as
+the past-seasons backfill fills in. Two things no page read were dropped:
+
+- **`seasons[].line`** (section 9, "the competition's full season line") is no longer written. It was
+  76 of the 142 MB. The person page's competition dossier reads the competition's own
+  `players_live.json`, and a past season's lines are in `s/<sid>/season.json` `players`.
+  `PERSON_LINES = True` in `analytics/unified.py` restores it.
+- **`teams[<tid>]`** is now `{name}` plus `national: true` only for a national team. The crest path
+  was the same `assets/crests/<tid>.png` in every file and the page derives it from the id;
+  `national: false` was implied.
+
+Result: `data/people/` went from 141.7 MB to 57.8 MB (23,691 files), and the deployed site from 712 MB
+to 629 MB. Every other key is unchanged; `people.js` needed no change.
+
+### 11.2 The value payloads (`data/value/`)
+
+Written by `build_value_layer` in `scripts/build_site_all.py` (after the unified step; model in
+`analytics/value.py`, payloads in `analytics/value_payloads.py`, method in `docs/MODELS.md` 11b).
+About 8.5 MB in all. Column-oriented files have `fields` and `rows`, as `people_index.json`.
+
+**`value/meta.json`**: `model` {`currency`, `weights[{key, label, component, sign, padj, weight}]`
+(goals per action, the rating per rating point), `box_scale`, `rating_weight`, `lambda`, `fitted`,
+`fit_matches`, `prior_minutes` 450, `proj_minutes` 900, `regular_minutes` 900, `replacement_pct` 20,
+`window_days` 365}; `validation` {`ok`, `n_matches`, `n_test`, `folds`, `burn_in`, `first_test_day`,
+`lambdas`, `r2{xgd, gd}{rating, team, box, value, rmse_home}`}; `reliability` {`n_players`,
+`value_r`, `box_r`, `rating_r`}; `components` (the ten names of the `c` arrays: Shooting, Creating,
+Progression, Passing, Ball security, Defending, Aerial, Goalkeeping, Rating, League); `roles`
+{code: label}; `units[{key, label, roles}]`; `replacement` {role: gross value per 90};
+`role_mean_rate`; `regulars` {role: n}; `ppg` {league: points per goal, `_pool`}; `comps` {slug:
+{name, short, kind, scope, centre, offset, method, coverage?, n_bridge?, approximate?, ppg, floor,
+tier, current, previous}}; `tiers`; `fvi` {minutes, years, discount, reference_raw, reference,
+value_per_rating_point, ageing{age: rating change}, continuation{age: p}, market_value_spearman{n,
+rho}, n_ageing_pairs}; `market_value` {n, source}; `windows` {league: {open, until | next, spans}};
+`today`; `targets` {max_age, strength_margin, league_step, free_max_age, per_need, regular_share,
+minutes_cap}; `counts`; `updated_at`.
+
+**`value/players.json`**: one row per player with club minutes in the last 12 months or a line this
+season. `fields`: `id` (pid), `name`, `age`, `nat`, `role` (GK, CB, FB, DM, CM, AM, W, ST, or DF, MF,
+FW without a start), `tid`, `club` (the current club, UNIFIED_PAYLOADS 2.3), `league` (the club's
+league this season), `min`, `apps` (last 12 months, club football), `gar90`, `gar`, `par`, `pct`
+(among regulars of the role; null under 900 minutes), `proj` (projected GAR/90), `fvi` (fair value
+index; null without an age or under 450 minutes), `mv` (Sofascore market value in EUR, reference
+only; null when the archive does not hold it), `until` (contract end "YYYY-MM", Sofascore's), `free`
+(1 when Sofascore lists "No team"), `rt` (minutes-weighted rating), `c` (per-90 components against
+the role's regular average, in `components` order). Sorted by `gar90`.
+
+**`value/lines.json`**: one row per player per competition this season, 90+ minutes. `fields`: `id`,
+`comp`, `tid` (the club of his latest line there), `min`, `apps`, `gar90`, `gar`, `par` (with the
+competition's points per goal), `pct` (within the competition and unit, over its minutes floor),
+`role`, `prev90` (GAR/90 last season in the same competition with 450+ minutes, else null), `rt`, `c`.
+
+**`value/club/<tid>.json`**: one file per club of a followed league (twelve pooled leagues and
+Argentina; 266 on 15 October 2026; files of clubs that left are pruned). `tid`, `name`, `league`,
+`league_name`, `season`, `as_of`; `pool` {strength, rank, xgd} or null; `units[{unit, label, rate
+(minutes-weighted projected GAR/90), pct, rank, n, grade (A-E), slots (players a match), few (graded
+on the squad's best: under 270 minutes this season), empty, evidence{component, delta}, depth[{id,
+name, role, proj, min (this season at the unit), age}]}]` in the order GK, CB, FB, MID, ATT, ST;
+`strengths`, `weaknesses` (three unit keys each); `targets` {weak unit: [{id, name, age, role, tid,
+club, league, min, proj, gain90, gain_pts_rest, gain_pts_38, fvi, mv, until, free, club_strength,
+hints[]}]}; `ppg`; `remaining` (league matches left, from the sensitivity file); `matches_per_season`;
+`gd_per_delta`; `sensitivity` (whether the league file has this club); `window`.
+
+### 11.3 `<league>/sensitivity.json`
+
+Written by `write_sensitivity` inside `build_league` (and for Argentina after `build_liga`), never
+failing the competition. `shifts` [-0.3, -0.15, 0, 0.15, 0.3] (log goal-rate units), `n_sims` 2000,
+`seed`, `remaining`, `metrics` (`exp_pts`, `p_title`, `band:<key>` for each band, `p_playoffs`,
+`p_cup` where the league has them; Argentina `band:libertadores`, `band:sudamericana`,
+`band:relegation`, and `torneo`), `bands[{key, label, kind}]`, `teams` {club name: {gd_per_delta,
+remaining, <metric>: [value at each shift]}}, `runtime_s`, `updated_at`. A finished season writes
+`{"teams": {}, "note": ...}`. Club names are the competition's (`teams.json`).

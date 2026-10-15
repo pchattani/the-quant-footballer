@@ -20,6 +20,7 @@
 <link rel="stylesheet" href="assets/analytics.css">
 <link rel="stylesheet" href="assets/docs.css">
 <link rel="stylesheet" href="assets/hub.css">
+<link rel="stylesheet" href="assets/value.css">
 <script src="https://cdn.plot.ly/plotly-2.27.0.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -52,7 +53,7 @@
       <a class="sister-link" href="https://pchattani.github.io/the-quant-gridiron/" title="The sister site: NFL odds, models and analytics">🏈 The Quant Gridiron</a>
       <a class="sister-link" href="https://pchattani.github.io/the-quant-rink/" title="The sister site: NHL odds, models and analytics">🏒 The Quant Rink</a>
       <nav class="global-nav">
-        <a href="#/">Hub</a><a href="#/clubs">Clubs across leagues</a><a href="#/nations">National teams</a><a href="#/leaders">Global leaders</a><a href="#/lab">Player lab</a><a href="#/compare">Compare</a><a href="#/glossary">Glossary</a><a href="#/methodology">Methodology</a>
+        <a href="#/">Hub</a><a href="#/clubs">Clubs across leagues</a><a href="#/nations">National teams</a><a href="#/leaders">Global leaders</a><a href="#/lab">Player lab</a><a href="#/value">Player value</a><a href="#/transfer">Transfers</a><a href="#/compare">Compare</a><a href="#/glossary">Glossary</a><a href="#/methodology">Methodology</a>
       </nav>
       <div class="site-sub"><span id="meta-line">—</span></div>
     </div>
@@ -80,6 +81,8 @@
       </div></div>
       <div class="card"><div class="card-header">Explore</div><div class="pad hub-links">
         <a href="#/lab"><b>Player lab</b><span>Scatter any two metrics, by position, across the world</span></a>
+        <a href="#/value"><b>Player value</b><span>Goals above replacement, the best at every position</span></a>
+        <a href="#/transfer"><b>Transfer simulator</b><span>Move a player and see both clubs' odds change</span></a>
         <a href="#/clubs"><b>Clubs across leagues</b><span>Every club on one scale, price any match</span></a>
         <a href="#/nations"><b>National teams</b><span>Ratings and a pricer for any pairing</span></a>
         <a href="#/leaders"><b>Global leaders</b><span>Raw and league-adjusted rates</span></a>
@@ -547,6 +550,10 @@
   <!-- ── Compare ───────────────────────────────────────────────────────── -->
   <div id="tab-compare" class="tab-pane"></div>
 
+  <!-- ── Player value and the transfer simulator (value.js) ───────────── -->
+  <div id="tab-value" class="tab-pane"></div>
+  <div id="tab-transfer" class="tab-pane"></div>
+
   <!-- ── A past season of a competition (seasons.js) ─────────────────── -->
   <div id="tab-past" class="tab-pane"></div>
 
@@ -601,5 +608,6 @@
 <script src="assets/js/people.js"></script>
 <script src="assets/js/docs.js"></script>
 <script src="assets/js/hub.js"></script>
+<script src="assets/js/value.js"></script>
 </body>
 </html>

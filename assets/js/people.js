@@ -255,7 +255,7 @@ function drawPersonBody(doc, R, q, token) {
   const cmpComp = q.c && R.seasons.some(s => s.comp === q.c && s.source === 'live') ? q.c : (best ? best.comp : null);
   const pos = doc.pos === 'G' ? 'G' : (doc.pos || 'M');
   html += '<div class="card"><div class="muted">' + (cmpComp ? '<a href="#/compare/players/' + esc(cmpComp) + ':' + esc(doc.id) + '">Compare this player →</a> &nbsp;·&nbsp; <a href="#/lab/' + esc(cmpComp) + '/' + esc(pos) + '">Player lab →</a> &nbsp;·&nbsp; ' : '') +
-    '<a href="#/leaders">Global leaders →</a> &nbsp;·&nbsp; <a href="#/glossary">Glossary →</a></div></div>';
+    '<a href="#/leaders">Global leaders →</a> &nbsp;·&nbsp; <a href="#/value?q=' + encodeURIComponent(doc.name || '') + '">Player value →</a> &nbsp;·&nbsp; <a href="#/transfer?p=' + esc(doc.id) + '">Transfer simulator →</a> &nbsp;·&nbsp; <a href="#/glossary">Glossary →</a></div></div>';
   setHTML('person-body', html);
 
   // Tables.
@@ -488,7 +488,8 @@ function drawClubBody(doc, seasons, matchesAll, people, q, token) {
     statTile('Points per game', done.length ? num((3 * w + dr) / done.length, 2) : '—', 'every match in the filter') +
     statTile('Clean sheets', done.filter(m => m.ga === 0).length, done.length ? pct(done.filter(m => m.ga === 0).length / done.length, 0) : '') + '</div>';
 
-  html += '<div id="cl-dossier"></div>';
+  // Strengths and needs (value.js): league clubs only; a club without a value file shows nothing.
+  html += '<div id="cl-needs"></div><div id="cl-dossier"></div>';
   html += '<div class="card"><div class="card-header">Season by season <span class="card-sub">Finishing position, record and the model\'s strength where it was fitted.</span></div><div id="cl-seasons"></div></div>' +
     '<div class="card"><div class="card-header">' + (doc.national ? 'Latest call-up' : 'Current squad') + ' <span class="card-sub" id="cl-squad-sub"></span></div><div id="cl-squad"></div></div>';
   html += '<div class="grid-2"><div class="card"><div class="card-header">Points per game by season <span class="card-sub">Matches in the stores, by competition.</span></div><div id="cl-ppg" style="height:300px"></div></div>' +
@@ -597,6 +598,7 @@ function drawClubBody(doc, seasons, matchesAll, people, q, token) {
   sortableIn('cl-matches');
 
   clubCharts(seasons.filter(keep), done);
+  if (!doc.national && FH.renderClubNeeds) FH.renderClubNeeds(document.getElementById('cl-needs'), doc.id);
 
   // The competition dossier: the model, analytics and players in a live competition.
   const c = q.c ? compOf(q.c) : null;
