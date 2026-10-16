@@ -526,3 +526,87 @@ failing the competition. `shifts` [-0.3, -0.15, 0, 0.15, 0.3] (log goal-rate uni
 `band:relegation`, and `torneo`), `bands[{key, label, kind}]`, `teams` {club name: {gd_per_delta,
 remaining, <metric>: [value at each shift]}}, `runtime_s`, `updated_at`. A finished season writes
 `{"teams": {}, "note": ...}`. Club names are the competition's (`teams.json`).
+
+## 12. As built (16 October 2026): transfers, fair fees, budgets, fantasy
+
+Method: `docs/MODELS.md` 11c (transfers) and 11d (fantasy). Sizes on 16 October: `value/transfers.json`
+2.1 MB, `value/players.json` 4.5 MB (was 3.6), `value/club/` 5.9 MB (was ~2), `fantasy/` 1.5 MB (14 files):
+about +6 MB on the deployed site.
+
+### 12.1 The transfer store (fetcher output; never loaded by the page, pruned from the deploy)
+
+`data/transfers/store.json`, written by phase 4 of `scripts/fetch_sofascore_history.py`, committed by the
+hourly task with the other stores:
+
+```jsonc
+{"transfers": {"3665958": {"i": 3665958, "p": "827679", "n": "Ezri Konsa", "ps": "D", "f": 40, "fn": "Aston Villa",
+                           "t": 42, "tn": "Arsenal", "k": 3, "fee": 59600000, "d": "59.6M €", "ts": 1787270400}},
+ "teams": {"42": {"fetched_at": "...", "n": 26, "name": "Arsenal"}},     // club lists fetched
+ "players": {"934235": {"fetched_at": "...", "n": 1}},                   // player histories fetched
+ "failed": {"t1044584": {"at": "...", "status": 404}},                   // no page: retried after 14 days
+ "meta": {"updated_at": "...", "n_transfers": 12373, "source": "..."}}
+```
+
+`k`: 1 loan, 2 loan return, 3 permanent; `fee` absent when Sofascore publishes none; `cur` only when not
+EUR. The squads store's player rows gained `mv` (Sofascore's proposed market value) and `mvc` (its
+currency when not EUR), and the store a `failed` map (clubs without a squad page, retried after 14 days).
+
+### 12.2 `value/meta.json`: new keys
+
+- `fee`: `n_fees`, `n_with_value`, `min_fit`, `fitted`; when fitted `validation` {`folds`, `lambda`, `n`,
+  `cv` {`model`, `value_age_only`, `baseline_median`: {`n`, `mdae_log`, `error_factor`, `within_50pct`,
+  `r2_log`, `median_abs_eur`, `spearman`}}, `time_split` {`train_until`, `test_from`, `model`,
+  `baseline_median`}} and `model` {`features` (the 14 names), `mean`, `sd`, `coef`, `intercept`, `lambda`,
+  `sigma` (cross-validated residual sd of log fee), `n`, `unknown_xgd`}; else `reason`. Always
+  `market_value_check` {n, spearman_fair_fee} and `market_value_check_v2` {n, spearman_v2}.
+- `v2`: `draws`, `years`, `discount`, `season_minutes`, `var_within`, `sigma_age`, `avail_prior`,
+  `avail_prior_matches`, `avail_concentration`, `ppg`.
+- `budgets`: `target_window`, `previous_window`, `next_window`, `n_clubs`, `features`, `market_values`,
+  `ok`, `r2_log_cv`, `spearman_cv`, `residual_quantiles` [10, 25, 75, 90%], `inside_25_75_cv`,
+  `winter_ratio`, `coef`, `mean`, `sd`, `intercept`, `n_budgets` (or `reason`).
+- `transfers`: `coverage` {`transfers`, `by_kind`, `clubs_fetched`, `clubs_followed`, `clubs_fetched_all`,
+  `players_fetched`, `first_date`, `last_date`, `squads_with_mv`, `players_with_mv`, `store_updated`},
+  `grades` {`n_buyer`, `n_seller`, `window_days`, `perf_minutes`, `price_minutes`, `free_ref`},
+  `runtime_s`, `source`.
+- `market_value.source` now names the squads store as well as the archive.
+
+### 12.3 `value/players.json`, `value/club/<tid>.json`, `value/transfers.json`
+
+- **`players.json`** gained seven fields at the end: `v2`, `v2lo`, `v2hi` (valuation v2: expected points
+  above replacement over four seasons and its 10-90% band), `avail` (shrunk availability), `fee`,
+  `feelo`, `feehi` (fair fee to a buyer like his own club, EUR, null without the fee model or under 450
+  minutes). `mv` now prefers the squads store's value.
+- **`club/<tid>.json`** gained `budget` {`summer` {mid, lo, hi, lo80, hi80}, `next` {window, mid, lo, hi},
+  `complete` (its list is fetched), `squad_mv`, `squad_mv_n`, `squad_n`, `mv_pre`} (null when neither a
+  model budget nor squad values exist) and `ledger` {`in`, `out`, `returns`: [{key, date, pid, name, role,
+  age, club, club_name, kind, fee, fee_text, fair, grade, post_min, post_gar90, proj_pre}], `windows`:
+  [{window, label, spend, income, net, n_in, n_out, undisclosed, loans_in, free_in, complete}],
+  `last12` {spend, income, net, fair_in, fair_out, value_added, gar_in, gar_out}, `fetched`}; each target
+  gained `fee`, `fee_lo`, `fee_hi` (to this buyer) and `afford` ("yes", "stretch", "no" or null).
+- **`transfers.json`** (new): column-oriented `fields`/`rows`, one row per move involving a followed club in
+  the last 400 days (plus any move the lists below refer to): `key`, `date`, `pid`, `name`, `age` (at
+  the move), `role`, `from`, `from_name`, `to`, `to_name`, `kind` (fee, free, undisclosed, youth, loan,
+  loan_end), `fee`, `fee_text`, `window`, `fair` (fair fee at the time), `pre_min`, `proj_pre`,
+  `post_min`, `post_gar90`, `post_share`, `b_grade`, `b_score`, `s_grade`, `s_score`, `winner`,
+  `from_league`, `to_league`; `best`, `worst` (20 keys each); `windows` {league: {window: {spend, income,
+  net, n_in, n_fee_in, undisclosed_in, loans_in, free_in, top[keys], best[keys], spenders[[tid, spend,
+  income]], sellers[...], label}}}; `coverage`; `fee_fitted`; `today`; `next_window`; `latest_summer`;
+  `updated_at`.
+
+### 12.4 `fantasy/meta.json` and `fantasy/<league>.json`
+
+- **`meta.json`**: `scoring`, `price_ranges`, `price_power`, `budget`, `squad`, `per_club`, `horizon`,
+  `bench_weight`, `leagues` [{slug, name, players, gameweeks, next}], `backtest` {`ok`, `rounds`,
+  `player_rounds`, `mean_actual`, `methods` {model, std, last5, y365: {label, mae, rmse, bias,
+  spearman_round_mean, top20_actual_mean, by_position, big5_mae}}, `calibration`, `calibration_note`,
+  `runtime_s`}, `rates`, `official_data`, `today`, `runtime_s`, `updated_at`.
+- **`<league>.json`** (13 leagues; files of leagues no longer built are pruned): `league`, `name`,
+  `season`, `as_of`, `gameweeks` [{gw, label, start, end, n}] (six), `n_gameweeks`, `fields`/`rows`: `id`,
+  `name`, `pos` (G/D/M/F), `tid`, `club`, `price`, `next`, `h5`, `ros`, `tier`, `e_min`, `p60`, `p_goal`,
+  `p_ga`, `cs`, `season_pts`, `season_min`, `season_apps`, `season_xpts`, `form_pts`, `form_xpts`,
+  `form_apps`, `value`, `next_parts` (the next gameweek's points by `parts`: app, goals, assists, cs, gc,
+  saves, cards, og_pm, dc, bonus); `fdr` [{tid, club, gws: [[[opponent, home 1/0, xG for, xG against,
+  attack rating 1-5, defence rating 1-5], ...] per gameweek], xg_for, cs_sum}]; `squad` {solver, cost,
+  budget, horizon, xi, bench, captain, vice, xi_h5, xi_next, formation} (or {solver: "greedy...",
+  squad}); `picks` {captain, differentials, value, sell, buy_low, sell_high, buys {G, D, M, F}} (player
+  ids); `updated_at`.

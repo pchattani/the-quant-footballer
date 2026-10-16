@@ -23,7 +23,7 @@ const ROLE_ORDER = ['GK', 'CB', 'FB', 'DM', 'CM', 'AM', 'W', 'ST', 'DF', 'MF', '
 const ROLE_SHORT = { GK: 'GK', CB: 'CB', FB: 'FB', DM: 'DM', CM: 'CM', AM: 'AM', W: 'W', ST: 'ST', DF: 'DF', MF: 'MF', FW: 'FW' };
 const UNIT_OF = { GK: 'GK', CB: 'CB', FB: 'FB', DM: 'MID', CM: 'MID', AM: 'ATT', W: 'ATT', ST: 'ST', DF: 'CB', MF: 'MID', FW: 'ST' };
 const MINUTES_CAP = 85;
-const HONEST = 'Model suggestions based on on-field value; not considering wages, transfer fees, contracts, fit or availability unless shown.';
+const HONEST = 'Model suggestions based on on-field value and our fair-fee and budget models; not considering wages, contracts, fit or availability unless shown.';
 
 function has(v) { return v !== undefined && v !== null && !(typeof v === 'number' && isNaN(v)); }
 function g2(v) { return has(v) ? signed(v, 2) : '—'; }
