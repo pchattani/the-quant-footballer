@@ -3,12 +3,16 @@
  *   #/value       goals above replacement: a leaderboard (last 12 months, or this season
  *                 by competition), the best at each position, and how the number is made.
  *                 Filters live in the query: ?v=season&c=<slug>&t=<tier>&club=<tid>&r=<role>&min=<n>&q=<text>
- *   #/transfer    the transfer simulator: ?p=<player id>&to=<buying club id>&out=<id,id>
- *   FH.renderClubNeeds(el, tid)   the club page's "Strengths and needs" card
+ *   #/transfer    the transfer simulator: ?p=<player id>&to=<buying club id>&out=<id,id>;
+ *                 ?view=feed|deals|windows: the transfers feed with grades, the best and worst deals
+ *                 of the last 12 months, and window summaries by league (data/value/transfers.json)
+ *   FH.renderClubNeeds(el, tid)   the club page's "Strengths and needs" card, with the club's
+ *                 transfer budget and its ledger
  *
- * Reads data/value/meta.json, players.json, lines.json, club/<tid>.json (UNIFIED_PAYLOADS.md
- * section 11), each league's sensitivity.json and probs.json. Every number on these pages
- * comes from a payload; the simulator only interpolates the build's sensitivity curves. */
+ * Reads data/value/meta.json, players.json, lines.json, transfers.json, club/<tid>.json
+ * (UNIFIED_PAYLOADS.md sections 11-12), each league's sensitivity.json and probs.json. Every number
+ * on these pages comes from a payload; the simulator only interpolates the build's sensitivity
+ * curves and evaluates the fee model's published coefficients for the chosen buyer. */
 (function (FH) {
 'use strict';
 
@@ -36,6 +40,35 @@ function clubA(name, tid) {
 function playerA(id, name) { return '<a class="player-link" href="' + esc(personHref(id)) + '">' + esc(name) + '</a>'; }
 
 let META = null;
+
+const KIND_LABEL = { fee: 'Transfer', free: 'Free', undisclosed: 'Undisclosed fee', loan: 'Loan', loan_end: 'Loan return', youth: 'Promoted' };
+function kindChip(k) { return '<span class="tkind tkind-' + esc(k) + '">' + esc(KIND_LABEL[k] || k) + '</span>'; }
+function dealGrade(g, title) { return g ? '<span class="vgrade vgrade-' + esc(g) + '"' + (title ? ' title="' + esc(title) + '"' : '') + '>' + esc(g) + '</span>' : '<span class="muted-inline">—</span>'; }
+function moneyRange(lo, hi) { return has(lo) && has(hi) ? money(lo) + '–' + money(hi) : '—'; }
+
+/* The fee model's fair fee for a player to a buyer: the published ridge on standardised features
+   (value_payloads / transfers.py FeeModel). Returns [fee, lo, hi] in EUR or null. */
+function fairFee(P, buyerXgd, sellerXgd) {
+  const fm = ((META || {}).fee || {}).model;
+  if (!fm || !P || !has(P.v2) || (P.min || 0) < 450) return null;
+  const unit = UNIT_OF[P.role] || 'MID';
+  const age = (has(P.age) ? P.age + 0.5 : 26) - 26;
+  const sx = has(sellerXgd) ? sellerXgd : null, bx = has(buyerXgd) ? buyerXgd : null;
+  const x = [Math.log(1 + Math.max(P.v2, 0)), P.proj || 0, age, age * age,
+    unit === 'CB' ? 1 : 0, unit === 'FB' ? 1 : 0, unit === 'MID' ? 1 : 0, unit === 'ATT' ? 1 : 0, unit === 'ST' ? 1 : 0,
+    sx === null ? fm.unknown_xgd : sx, sx === null ? 1 : 0, bx === null ? fm.unknown_xgd : bx, bx === null ? 1 : 0, Math.log(1 + (P.min || 0) / 90)];
+  let lp = fm.intercept;
+  for (let i = 0; i < x.length; i++) lp += ((x[i] - fm.mean[i]) / (fm.sd[i] || 1)) * fm.coef[i];
+  const z = 0.6745 * (fm.sigma || 0.8);
+  return [Math.exp(lp), Math.exp(lp - z), Math.exp(lp + z)];
+}
+
+function affordText(fee, budget) {
+  const b = (budget || {}).summer;
+  if (!fee || !b || !has(b.hi)) return '';
+  const word = fee <= b.hi ? 'within' : fee <= b.hi80 ? 'a stretch for' : 'beyond';
+  return '<span class="' + (word === 'within' ? 'vup' : word === 'beyond' ? 'vdown' : '') + '">' + esc(word) + '</span>';
+}
 
 /* The components that drive a value, largest first: "Creating +0.12 · Shooting +0.08". */
 function drivers(c, n) {
@@ -108,6 +141,7 @@ function drawValue(pane, V, token) {
     statTile('Updated', esc(String(m.updated_at || '').slice(0, 10)), 'rebuilt every hour') + '</div></div>' +
     '<div class="card"><div class="controls" id="val-controls"></div><div id="val-note" class="pad vsmall muted-inline"></div><div id="val-table"></div></div>' +
     '<div class="card"><div class="card-header">Best at each position <span class="card-sub" id="val-best-sub"></span></div><div class="vbest" id="val-best"></div></div>' +
+    '<div class="card"><div class="card-header">Fair fees and budgets <span class="card-sub">The fee model fitted on real transfer fees, and the clubs\' budgets, checked out of sample.</span></div><div id="val-fee"></div></div>' +
     '<div class="card"><div class="card-header">The weights and the checks <span class="card-sub">Fitted at every build; the method is in the methodology.</span></div><div id="val-method"></div></div>';
   const draw = nq => {
     Object.keys(nq).forEach(k => { if (nq[k] === '' || nq[k] === undefined || nq[k] === null) delete nq[k]; });
@@ -127,6 +161,7 @@ function drawValue(pane, V, token) {
   draw(q);
   setHTML('val-method', methodHTML(m));
   sortableIn('val-method');
+  setHTML('val-fee', feeHTML(m));
 }
 
 function valueRows(V, q) {
@@ -145,7 +180,7 @@ function valueRows(V, q) {
     });
   } else {
     rows = V.players.filter(p => (p.min || 0) > 0).map(p => ({ id: p.id, name: p.name, age: p.age, comp: p.league, tid: p.tid, club: p.club, role: p.role, min: p.min,
-      gar90: p.gar90, gar: p.gar, par: p.par, pct: p.pct, proj: p.proj, fvi: p.fvi, mv: p.mv, rt: p.rt, c: p.c, free: p.free }));
+      gar90: p.gar90, gar: p.gar, par: p.par, pct: p.pct, proj: p.proj, fvi: p.fvi, mv: p.mv, rt: p.rt, c: p.c, free: p.free, v2: p.v2, v2lo: p.v2lo, v2hi: p.v2hi, fee: p.fee }));
   }
   return rows.filter(r => (r.min || 0) >= min && has(r.gar90) &&
     (!q.c || r.comp === q.c) && (!q.t || tierOf(r.comp) === q.t) && (!q.club || String(r.tid) === String(q.club)) &&
@@ -200,7 +235,10 @@ function drawValueBody(V, q, draw) {
     { label: 'PAR', align: 'right', title: 'Points above replacement: GAR times the points a goal of goal difference is worth' },
     { label: 'Pctl', align: 'center', title: season ? 'Percentile in the competition, same position group' : 'Percentile among regulars in the same role' }
   ].concat(season ? [{ label: 'Trend', align: 'right', title: 'GAR/90 change against last season in the same competition (450+ minutes then)' }]
-    : [{ label: 'Proj.', align: 'right', title: 'Projected GAR/90: shrunk toward replacement by 900 minutes' }, { label: 'FVI', align: 'right', title: 'Fair value index: 100 = the median regular of the top five leagues; not euros' }])
+    : [{ label: 'Proj.', align: 'right', title: 'Projected GAR/90: shrunk toward replacement by 900 minutes' },
+      { label: 'Value', align: 'right', title: 'Valuation v2: expected points above replacement over the next four seasons (ageing, availability, discounted 15% a year), with its 10-90% band' },
+      feeOn() ? { label: 'Fair fee', align: 'right', title: 'The fee model fitted on real transfer fees: what a club like his own would pay (EUR)' } : { label: 'FVI', align: 'right', title: 'Fair value index: 100 = the median regular of the top five leagues; not euros' },
+      { label: 'Sofascore', align: 'right', title: 'Sofascore\'s proposed market value, for reference' }])
     .concat([{ label: 'Why', sortable: false }, { label: '', sortable: false }]);
   setHTML('val-table', shown.length ? tableHTML(cols, shown.map((r, i) => ({ cells: [
     { v: i + 1, cls: 'pos-cell' }, { v: r.name, html: playerA(r.id, r.name) + (r.free ? ' <span class="chip warn" title="Sofascore lists him without a club">no club</span>' : '') },
@@ -210,7 +248,10 @@ function drawValueBody(V, q, draw) {
     { v: r.gar90, html: '<strong>' + g2(r.gar90) + '</strong>', align: 'right' }, { v: r.gar || 0, html: has(r.gar) ? signed(r.gar, 1) : '—', align: 'right' },
     { v: r.par || 0, html: has(r.par) ? signed(r.par, 1) : '—', align: 'right' }, { v: has(r.pct) ? r.pct : -1, html: pctPill(r.pct), align: 'center' }
   ].concat(season ? [{ v: has(r.prev90) ? r.gar90 - r.prev90 : -9, html: has(r.prev90) ? '<span class="' + (r.gar90 >= r.prev90 ? 'vup' : 'vdown') + '" title="Last season ' + g2(r.prev90) + '">' + signed(r.gar90 - r.prev90, 2) + '</span>' : '<span class="muted-inline">—</span>', align: 'right' }]
-    : [{ v: has(r.proj) ? r.proj : -9, html: g2(r.proj), align: 'right' }, { v: has(r.fvi) ? r.fvi : -1, html: has(r.fvi) ? String(r.fvi) : '—', align: 'right' }])
+    : [{ v: has(r.proj) ? r.proj : -9, html: g2(r.proj), align: 'right' },
+      { v: has(r.v2) ? r.v2 : -1, html: has(r.v2) ? '<span title="10-90%: ' + num(r.v2lo, 1) + '-' + num(r.v2hi, 1) + ' points">' + num(r.v2, 1) + '</span>' : '—', align: 'right' },
+      feeOn() ? { v: has(r.fee) ? r.fee : -1, html: money(r.fee), align: 'right' } : { v: has(r.fvi) ? r.fvi : -1, html: has(r.fvi) ? String(r.fvi) : '—', align: 'right' },
+      { v: has(r.mv) ? r.mv : -1, html: money(r.mv), align: 'right' }])
     .concat([{ v: '', html: drivers(r.c) }, { v: '', html: '<a href="#/transfer?p=' + esc(r.id) + '" title="Simulate a transfer">Transfer →</a>' }]) })), { sticky: true }) :
     '<div class="muted">No player clears the filters.</div>');
   sortableIn('val-table');
@@ -225,6 +266,37 @@ function drawValueBody(V, q, draw) {
       '<div class="vbest-sub">' + (has(r.gar) ? signed(r.gar, 1) + ' GAR in ' + (r.min || 0).toLocaleString('en-US') + ' min · ' : '') + (r.club ? esc(r.club) : '') + (r.comp ? ' · ' + esc(compName(r.comp)) : '') + (has(r.age) ? ' · ' + r.age : '') + '</div>' +
       '<div class="vbest-why">' + drivers(r.c, 3) + '</div></li>').join('') + '</ol>' : '<div class="muted">Nobody clears the filters.</div>') + '</div>';
   }).join(''));
+}
+
+function feeOn() { return !!(((META || {}).fee || {}).fitted); }
+
+/* The fee model's and the budgets' out-of-sample checks, for the value page. */
+function feeHTML(m) {
+  const f = m.fee || {};
+  const v = (f.validation || {});
+  const cv = v.cv || {};
+  const ts = v.time_split || {};
+  const b = m.budgets || {};
+  const cov = (m.transfers || {}).coverage || {};
+  if (!f.fitted) return '<div class="pad muted">' + esc(f.reason || 'No fee model this build.') + '</div>';
+  const row = (lbl, x, bold) => ({ cells: [{ v: lbl, html: bold ? '<strong>' + esc(lbl) + '</strong>' : esc(lbl) }, { v: x.error_factor, html: '×' + num(x.error_factor, 2), align: 'right' },
+    { v: x.within_50pct, html: pct(x.within_50pct, 0), align: 'right' }, { v: x.r2_log, html: num(x.r2_log, 2), align: 'right' }, { v: x.spearman, html: num(x.spearman, 2), align: 'right' },
+    { v: x.median_abs_eur, html: money(x.median_abs_eur), align: 'right' }] });
+  const cols = [{ label: 'Out of sample' }, { label: 'Typical error', align: 'right', title: 'exp(median absolute error of log fee)' }, { label: 'Within ±50%', align: 'right' },
+    { label: 'R² (log)', align: 'right' }, { label: 'Rank corr.', align: 'right' }, { label: 'Median miss', align: 'right' }];
+  let h = '<div class="grid-2"><div class="vcell">' + tableHTML(cols, [row('Fee model, 5 folds by player', cv.model || {}, true), row('Value and age only', cv.value_age_only || {}),
+    row('Median fee by league tier and position', cv.baseline_median || {})].concat(ts.model ? [row('Fee model, later fees (from ' + ts.test_from + ')', ts.model, true), row('Baseline, later fees', ts.baseline_median || {})] : []), { compact: true }) +
+    '<div class="pad vsmall muted-inline">Fitted on ' + (f.n_with_value || 0).toLocaleString('en-US') + ' of ' + (f.n_fees || 0).toLocaleString('en-US') + ' published fees (those where the player had 450+ club minutes in our data in the year before). Against Sofascore\'s market values the fair fee rank-correlates ' +
+    num(((f.market_value_check || {}).spearman_fair_fee), 2) + ' over ' + ((f.market_value_check || {}).n || 0).toLocaleString('en-US') + ' players (valuation v2 alone ' + num(((f.market_value_check_v2 || {}).spearman_v2), 2) + ').</div></div><div class="vcell">';
+  if (b.ok) {
+    h += tableHTML([{ label: 'Budget model' }, { label: '', align: 'right' }], [
+      ['Clubs fitted (latest summer window)', String(b.n_clubs)], ['Rank correlation, 5 folds by club', num(b.spearman_cv, 2)], ['R² (log spend), out of sample', num(b.r2_log_cv, 2)],
+      ['Clubs inside their 25-75% range, out of sample', pct(b.inside_25_75_cv, 0)], ['Winter window as a share of summer', pct(b.winter_ratio, 0)],
+      ['Inputs', (b.features || []).join(', ')]].map(x => ({ cells: [{ v: x[0], html: esc(x[0]) }, { v: x[1], html: esc(x[1]), align: 'right' }] })), { compact: true });
+  } else h += '<div class="muted">Budgets: ' + esc(b.reason || 'not fitted') + '</div>';
+  h += '<div class="pad vsmall muted-inline">Transfer data: ' + (cov.transfers || 0).toLocaleString('en-US') + ' moves from Sofascore (each followed club\'s recent list, ' + (cov.clubs_fetched || 0) + ' of ' + (cov.clubs_followed || 0) + ' clubs, and ' + (cov.players_fetched || 0).toLocaleString('en-US') +
+    ' players\' whole histories so far); market values for ' + (cov.players_with_mv || 0).toLocaleString('en-US') + ' players.</div></div></div>';
+  return h;
 }
 
 function methodHTML(m) {
@@ -256,8 +328,15 @@ let TR_TOKEN = 0;
 function clubFile(tid) { return tid ? loadSite('value/club/' + tid + '.json') : Promise.resolve(null); }
 function sensFile(slug) { return slug ? loadSite(slug + '/sensitivity.json') : Promise.resolve(null); }
 
+function transferNav(view) {
+  const items = [['', 'Simulator'], ['feed', 'Latest transfers'], ['deals', 'Best and worst deals'], ['windows', 'Windows by league']];
+  return '<div class="card"><div class="controls"><div class="scope-chips">' + items.map(x => '<a class="fam-btn' + ((view || '') === x[0] ? ' active' : '') + '" href="#/transfer' + (x[0] ? '?view=' + x[0] : '') + '">' + esc(x[1]) + '</a>').join('') + '</div></div></div>';
+}
+
 function renderTransfer() {
   const pane = document.getElementById('tab-transfer');
+  const view = (FH.STATE.query || {}).view;
+  if (view === 'feed' || view === 'deals' || view === 'windows') { renderTransfers(pane, view); return; }
   const token = ++TR_TOKEN;
   pane.innerHTML = '<div class="muted">Loading the transfer simulator…</div>';
   Promise.all([loadValue(), loadSite('clubs_index.json')]).then(([V, ci]) => {
@@ -268,6 +347,7 @@ function renderTransfer() {
     CLUB_NAMES = CLUB_NAMES || {};
     rowsOf(ci).forEach(c => { CLUB_NAMES[String(c.id)] = c.name; });
     drawTransfer(pane, V, clubs, token);
+    pane.insertAdjacentHTML('afterbegin', transferNav(''));
   }).catch(err => { pane.innerHTML = '<div class="error-banner">Could not load the simulator: ' + esc(err.message) + '</div>'; });
 }
 
@@ -349,7 +429,9 @@ function playerCard(P) {
     statTile('GAR/90', g2(P.gar90), (P.min || 0).toLocaleString('en-US') + ' min, last 12 months') +
     statTile('Projected', g2(P.proj), 'shrunk by 900 minutes') +
     statTile('Percentile', has(P.pct) ? ordinal(P.pct) : '—', esc(roleLabel(P.role)) + ' regulars') +
-    statTile('Fair value index', has(P.fvi) ? String(P.fvi) : '—', '100 = median top-five regular · not euros') +
+    (has(P.v2) ? statTile('Value (4 seasons)', num(P.v2, 1) + ' pts', '10-90%: ' + num(P.v2lo, 1) + '-' + num(P.v2hi, 1) + ' · availability ' + pct(P.avail, 0)) :
+      statTile('Fair value index', has(P.fvi) ? String(P.fvi) : '—', '100 = median top-five regular · not euros')) +
+    (feeOn() ? statTile('Fair fee', money(P.fee), has(P.fee) ? 'to a club like his own · ' + moneyRange(P.feelo, P.feehi) : 'under 450 minutes: no fee') : '') +
     statTile('Sofascore value', money(P.mv), has(P.mv) ? 'Sofascore\'s estimate, reference only' : 'not in our stores') +
     statTile('Contract', P.until ? esc(P.until) : '—', P.until ? 'until (Sofascore)' : 'not in our stores') + '</div>' +
     (P.c ? '<div class="vsmall">Why: ' + drivers(P.c, 4) + ' <span class="muted-inline">(per 90, against the average ' + esc(roleLabel(P.role)).toLowerCase() + ')</span></div>' : '') +
@@ -509,7 +591,17 @@ function drawTransferResult(V, P, B, S, sens, q) {
   h += '<div class="card"><div class="card-header">' + (S ? crest(S.name, 'assets/crests/' + S.tid + '.png') + esc(S.name) + ' <span class="card-sub">selling · ' + esc(compName(S.league)) + '</span>' : 'The seller') + '</div>' +
     (S ? '<div class="pad vsmall">Rating shift ' + signed(deltaS, 3) + ' from ' + signed(sd.delta, 3) + ' goals a match.</div>' + oddsTable(oS) + sd.units.map(du => depthTable(du, P)).join('') :
       '<div class="muted">No strengths-and-needs file for the seller: its odds are not simulated here.</div>') + '</div></div>';
-  h += '<div class="card"><div class="card-header">Fair value <span class="card-sub">No transfer fees are in our data, so this is an index, not a price.</span></div><div class="pad prose-dark">' +
+  const ff = fairFee(P, (B.pool || {}).xgd, S && S.pool ? S.pool.xgd : null);
+  const bud = B.budget || {};
+  if (ff) {
+    const bs = bud.summer || {}, bn = bud.next || {};
+    h += '<div class="card"><div class="card-header">Fair fee and budget <span class="card-sub">The fee model, fitted on real fees, for this buyer</span></div><div class="pad prose-dark">' +
+      '<p><strong>Fair fee to ' + esc(B.name) + ': ' + money(ff[0]) + '</strong> (middle half of similar deals: ' + moneyRange(ff[1], ff[2]) + '), from his value over the next four seasons (' + num(P.v2, 1) + ' points above replacement), age, position, minutes and both clubs\' strength. Sofascore\'s market value: ' + money(P.mv) + '.</p>' +
+      (has(bs.mid) ? '<p>' + esc(B.name) + '\'s budget for a summer window: about ' + money(bs.mid) + ' (25-75%: ' + moneyRange(bs.lo, bs.hi) + '); next window (' + esc(bn.window || '') + '): ' + moneyRange(bn.lo, bn.hi) +
+        '. The fair fee is ' + affordText(ff[0], bud) + ' its summer budget.</p>' : '<p class="vsmall">No budget estimate for ' + esc(B.name) + ' yet.</p>') +
+      '<p class="vsmall">' + esc(HONEST) + ' Budgets come from the club\'s own spending and sales and its peers\' (method: the methodology); wages are unknown.</p></div></div>';
+  }
+  h += '<div class="card"><div class="card-header">Fair value index <span class="card-sub">The older value-based index, kept beside the fee.</span></div><div class="pad prose-dark">' +
     '<p><strong>Fair value index ' + (has(P.fvi) ? P.fvi : '—') + '</strong> — expected points above replacement over the next ' + (((META || {}).fvi || {}).years || 4) + ' seasons at ' + ((((META || {}).fvi || {}).minutes) || 2500).toLocaleString('en-US') +
     ' minutes a season, discounted ' + Math.round((1 - ((((META || {}).fvi || {}).discount) || 0.85)) * 100) + '% a year, with the ageing curve and the chance of still being a regular, scaled so the median regular of the top five leagues is 100. ' +
     (has(P.mv) ? 'Sofascore\'s market value, for reference only: ' + money(P.mv) + '.' : 'Sofascore\'s market value is not in our stores for him.') + '</p>' +
@@ -522,6 +614,140 @@ function drawTransferResult(V, P, B, S, sens, q) {
     Object.keys(nq).forEach(k => { if (!nq[k]) delete nq[k]; });
     location.hash = '#/transfer' + FH.queryString(nq);
   }));
+}
+
+// ══ #/transfer?view=feed|deals|windows ═══════════════════════════════════
+
+function dealRow(d, opts) {
+  const o = opts || {};
+  const fairCell = has(d.fair) ? money(d.fair) : '<span class="muted-inline">—</span>';
+  const ratio = d.kind === 'fee' && has(d.fair) && d.fee ? d.fee / d.fair : null;
+  return { cells: [
+    { v: d.date, html: esc(d.date) }, { v: d.name || '', html: playerA(d.pid, d.name || ('#' + d.pid)) + ' ' + roleBadge(d.role) + (has(d.age) ? ' <span class="muted-inline">' + d.age + '</span>' : '') },
+    { v: d.from_name || '', html: clubA(d.from_name, d.from) }, { v: d.to_name || '', html: clubA(d.to_name, d.to) },
+    { v: d.kind, html: kindChip(d.kind) }, { v: d.fee || 0, html: d.kind === 'fee' ? money(d.fee) : d.kind === 'free' ? 'Free' : '<span class="muted-inline">' + esc(d.fee_text && d.fee_text !== '-' ? d.fee_text : '—') + '</span>', align: 'right' },
+    { v: d.fair || 0, html: fairCell, align: 'right' },
+    { v: ratio || 0, html: ratio ? '<span class="' + (ratio <= 1 ? 'vup' : 'vdown') + '">' + (ratio * 100).toFixed(0) + '%</span>' : '—', align: 'right' },
+    { v: d.post_min || 0, html: has(d.post_min) ? d.post_min.toLocaleString('en-US') + "'" + (has(d.post_gar90) ? ' <span class="muted-inline">' + g2(d.post_gar90) + '</span>' : '') : '—', align: 'right' },
+    { v: d.b_score || -9, html: dealGrade(d.b_grade, has(d.b_score) ? 'Buyer score ' + num(d.b_score, 2) : ''), align: 'center' },
+    { v: d.s_score || -9, html: dealGrade(d.s_grade, has(d.s_score) ? 'Seller score ' + num(d.s_score, 2) : ''), align: 'center' }
+  ].concat(o.winner ? [{ v: d.winner || '', html: d.winner ? esc(d.winner === 'even' ? 'even' : d.winner === 'buyer' ? 'buyer' : 'seller') : '—' }] : []) };
+}
+
+const DEAL_COLS = [{ label: 'Date' }, { label: 'Player' }, { label: 'From' }, { label: 'To' }, { label: 'Type' }, { label: 'Fee', align: 'right' },
+  { label: 'Fair fee', align: 'right', title: 'The fee model at the time of the move (cross-fitted: a deal never prices itself)' },
+  { label: 'Fee/fair', align: 'right', title: 'Under 100%: the buyer paid less than our fair fee' },
+  { label: 'Since', align: 'right', title: 'Minutes for the new club since the move, and GAR/90 there' },
+  { label: 'Buyer', align: 'center', title: 'Grade for the buying club: fee against fair value, then the value delivered as the minutes come in' },
+  { label: 'Seller', align: 'center', title: 'Grade for the selling club: fee received against fair value, less what the player has done since' }];
+
+function renderTransfers(pane, view) {
+  const token = ++TR_TOKEN;
+  pane.innerHTML = transferNav(view) + '<div class="muted">Loading transfers…</div>';
+  Promise.all([loadSite('value/transfers.json'), loadSite('value/meta.json')]).then(([T, m]) => {
+    if (token !== TR_TOKEN) return;
+    META = META || m;
+    if (!T || !(T.rows || []).length) { pane.innerHTML = transferNav(view) + '<div class="card"><div class="muted">No transfers in our data yet: the hourly task fills them from Sofascore.</div></div>'; return; }
+    const deals = rowsOf(T);
+    const byKey = {};
+    deals.forEach(d => { byKey[d.key] = d; });
+    const q = Object.assign({}, FH.STATE.query || {});
+    const cov = T.coverage || {};
+    const covLine = (cov.transfers || 0).toLocaleString('en-US') + ' moves from Sofascore; ' + (cov.clubs_fetched || 0) + ' of ' + (cov.clubs_followed || 0) + ' followed clubs\' lists fetched (refreshed weekly, every two days in a window). ' +
+      (T.fee_fitted ? 'Fair fees from the fee model.' : 'No fee model yet (too few fees with a value at the time): grades use the minutes since only.');
+    let h = transferNav(view);
+    if (view === 'feed') {
+      const leagues = Array.from(new Set(deals.map(d => d.to_league).concat(deals.map(d => d.from_league)).filter(Boolean))).sort();
+      h += '<div class="card"><div class="card-header">Latest transfers <span class="card-sub">every move involving a followed club in the last ' + Math.round(400 / 30) + ' months, newest first</span></div>' +
+        '<div class="controls" id="tf-ctl"><label>League <select class="team-select" data-f="lg"><option value="">Every league</option>' + leagues.map(l => '<option value="' + esc(l) + '"' + (q.lg === l ? ' selected' : '') + '>' + esc(compName(l)) + '</option>').join('') + '</select></label>' +
+        '<label>Type <select class="team-select" data-f="k"><option value="">Every type</option>' + ['fee', 'free', 'loan', 'undisclosed', 'loan_end'].map(k => '<option value="' + k + '"' + (q.k === k ? ' selected' : '') + '>' + esc(KIND_LABEL[k]) + '</option>').join('') + '</select></label>' +
+        '<label>Window <select class="team-select" data-f="w"><option value="">Every window</option>' + Array.from(new Set(deals.map(d => d.window))).sort().reverse().map(w => '<option value="' + esc(w) + '"' + (q.w === w ? ' selected' : '') + '>' + esc(w) + '</option>').join('') + '</select></label>' +
+        '<input type="search" data-f="q" placeholder="Player or club" value="' + esc(q.q || '') + '" style="max-width:180px"></div><div class="pad vsmall muted-inline">' + esc(covLine) + '</div><div id="tf-table"></div></div>';
+      pane.innerHTML = h;
+      const draw = () => {
+        const qn = q.q ? normText(q.q) : '';
+        const list = deals.filter(d => (!q.lg || d.to_league === q.lg || d.from_league === q.lg) && (!q.k || d.kind === q.k) && (!q.w || d.window === q.w) &&
+          (!qn || normText((d.name || '') + ' ' + (d.from_name || '') + ' ' + (d.to_name || '')).indexOf(qn) >= 0));
+        setHTML('tf-table', list.length ? tableHTML(DEAL_COLS, list.slice(0, 300).map(d => dealRow(d)), { sticky: true }) +
+          (list.length > 300 ? '<div class="pad vsmall muted-inline">The newest 300 of ' + list.length.toLocaleString('en-US') + ' shown; filter to see the rest.</div>' : '') : '<div class="muted">No transfer fits.</div>');
+        sortableIn('tf-table');
+      };
+      pane.querySelectorAll('#tf-ctl [data-f]').forEach(el => el.addEventListener(el.tagName === 'INPUT' ? 'input' : 'change', () => {
+        q[el.dataset.f] = el.value || undefined;
+        Object.keys(q).forEach(k => { if (!q[k]) delete q[k]; });
+        history.replaceState(null, '', '#/transfer' + FH.queryString(q)); FH.STATE.query = q; draw();
+      }));
+      draw();
+      return;
+    }
+    if (view === 'deals') {
+      const best = (T.best || []).map(k => byKey[k]).filter(Boolean), worst = (T.worst || []).map(k => byKey[k]).filter(Boolean);
+      h += '<div class="card"><div class="card-header">Best deals of the last 12 months <span class="card-sub">for the buying club: fee against fair value at the time, then the value delivered since</span></div><div id="td-best"></div></div>' +
+        '<div class="card"><div class="card-header">Worst deals of the last 12 months</div><div id="td-worst"></div></div>' +
+        '<div class="card"><div class="pad vsmall muted-inline">Grades are quintiles among the year\'s graded deals (A the best fifth). The price part is log(fair fee / fee), so paying half the fair fee and paying double are equally far from fair; a free signing scores log((fair + €1m) / €1m). The value since the move counts in proportion to his minutes, fully from 1,800: GAR/90 for the new club (shrunk toward the projection at the time by 900 minutes) against that projection, plus his share of the minutes against 60%. Loans are graded on the minutes since alone, once he has 450. ' + esc(covLine) + '</div></div>';
+      pane.innerHTML = h;
+      setHTML('td-best', best.length ? tableHTML(DEAL_COLS.concat([{ label: 'Winner' }]), best.map(d => dealRow(d, { winner: true })), { compact: true }) : '<div class="muted">Not enough graded deals yet.</div>');
+      setHTML('td-worst', worst.length ? tableHTML(DEAL_COLS.concat([{ label: 'Winner' }]), worst.map(d => dealRow(d, { winner: true })), { compact: true }) : '<div class="muted">Not enough graded deals yet.</div>');
+      sortableIn('td-best'); sortableIn('td-worst');
+      return;
+    }
+    // windows by league
+    const lgs = Object.keys(T.windows || {}).sort((a, b) => compName(a).localeCompare(compName(b)));
+    h += '<div class="card"><div class="card-header">Windows by league <span class="card-sub">spending, sales and the notable deals of each window (summer: May-October; winter: November-April)</span></div><div class="pad vsmall muted-inline">Sums of published fees only: undisclosed fees are counted, not summed. Windows before the last two rely on players\' transfer histories, which are still filling in, so older totals are incomplete. ' + esc(covLine) + '</div>';
+    lgs.forEach(lg => {
+      const ws = T.windows[lg] || {};
+      const keys = Object.keys(ws).sort().reverse().slice(0, 4);
+      if (!keys.length) return;
+      h += '<div class="vneed-unit">' + esc(compName(lg)) + '</div>' + tableHTML([{ label: 'Window' }, { label: 'Spent', align: 'right' }, { label: 'Sold', align: 'right' }, { label: 'Net', align: 'right' },
+        { label: 'Signings', align: 'right', title: 'Fee / free / loan / undisclosed' }, { label: 'Biggest fees', sortable: false }, { label: 'Best value', sortable: false }, { label: 'Top net spenders', sortable: false }],
+      keys.map(w => { const x = ws[w];
+        const nm = k => { const d = byKey[k]; return d ? playerA(d.pid, d.name) + ' <span class="muted-inline">' + (d.kind === 'fee' ? money(d.fee) : esc(KIND_LABEL[d.kind] || d.kind)) + '</span>' : ''; };
+        return { cells: [{ v: w, html: esc(x.label || w) }, { v: x.spend || 0, html: money(x.spend), align: 'right' }, { v: x.income || 0, html: money(x.income), align: 'right' },
+          { v: x.net || 0, html: (x.net >= 0 ? '' : '−') + money(Math.abs(x.net || 0)), align: 'right' },
+          { v: x.n_in || 0, html: (x.n_fee_in || 0) + ' / ' + (x.free_in || 0) + ' / ' + (x.loans_in || 0) + ' / ' + (x.undisclosed_in || 0), align: 'right' },
+          { v: '', html: (x.top || []).slice(0, 3).map(nm).join('<br>') }, { v: '', html: (x.best || []).slice(0, 3).map(nm).join('<br>') },
+          { v: '', html: (x.spenders || []).map(c => esc(clubNameFor(c[0]) || '#' + c[0]) + ' <span class="muted-inline">' + money((c[1] || 0) - (c[2] || 0)) + '</span>').join('<br>') }] }; }), { compact: true });
+    });
+    h += '</div>';
+    loadSite('clubs_index.json').then(ci => {
+      CLUB_NAMES = CLUB_NAMES || {};
+      rowsOf(ci).forEach(c => { CLUB_NAMES[String(c.id)] = c.name; });
+      if (token !== TR_TOKEN) return;
+      pane.innerHTML = h.replace(/#(\d+) <span/g, (m0, id) => esc(clubNameFor(id) || '#' + id) + ' <span');
+    });
+    pane.innerHTML = h;
+  }).catch(err => { pane.innerHTML = transferNav(view) + '<div class="error-banner">Could not load transfers: ' + esc(err.message) + '</div>'; });
+}
+
+/* The club page's budget and ledger, inside the strengths-and-needs card. */
+function budgetLedgerHTML(d) {
+  const b = d.budget || null, L = d.ledger || null;
+  if (!b && !L) return '';
+  let h = '<div class="pad"><div class="vsw-head">Transfer budget and ledger</div>';
+  if (b && b.summer) {
+    h += '<div class="kpi-grid">' + statTile('Summer window budget', money(b.summer.mid), '25-75%: ' + moneyRange(b.summer.lo, b.summer.hi)) +
+      statTile('Next window', moneyRange((b.next || {}).lo, (b.next || {}).hi), esc((b.next || {}).window || '')) +
+      statTile('Squad market value', money(b.squad_mv), has(b.squad_mv_n) ? b.squad_mv_n + ' of ' + (b.squad_n || 0) + ' players valued (Sofascore)' : 'not yet fetched') +
+      (L && L.last12 ? statTile('Net spend, 12 months', (L.last12.net < 0 ? '−' : '') + money(Math.abs(L.last12.net || 0)), 'spent ' + money(L.last12.spend) + ' · sold ' + money(L.last12.income)) : '') + '</div>' +
+      '<div class="vsmall muted-inline">The budget is a model of what this club spends in a window from its previous window\'s spending and sales, its league\'s and its own strength' + (b.squad_mv ? ' and its squad\'s market value' : '') + ', fitted across the followed clubs on the latest summer window (out of sample, half the clubs land inside their 25-75% range). Not a club statement; wages are unknown.</div>';
+  }
+  if (L) {
+    const l12 = L.last12 || {};
+    if (has(l12.value_added)) h += '<div class="vsmall" style="margin-top:6px">Last 12 months: fair value of the signings ' + money(l12.fair_in) + ' for ' + money(l12.spend) + ' in fees; fair value of the sales ' + money(l12.fair_out) + ' for ' + money(l12.income) +
+      ' → value added in the market ' + (l12.value_added >= 0 ? '+' : '−') + money(Math.abs(l12.value_added)) + '. On the pitch: signings worth ' + num(l12.gar_in, 1) + ' GAR a season, departures ' + num(l12.gar_out, 1) + '.</div>';
+    const lrow = x => ({ cells: [{ v: x.date, html: esc(x.date) }, { v: x.name || '', html: playerA(x.pid, x.name || '') + ' ' + roleBadge(x.role) }, { v: x.club_name || '', html: clubA(x.club_name, x.club) },
+      { v: x.kind, html: kindChip(x.kind) }, { v: x.fee || 0, html: x.kind === 'fee' ? money(x.fee) : x.kind === 'free' ? 'Free' : '—', align: 'right' }, { v: x.fair || 0, html: money(x.fair), align: 'right' },
+      { v: x.post_min || 0, html: has(x.post_min) ? x.post_min.toLocaleString('en-US') + "'" : '—', align: 'right' }, { v: x.grade || '', html: dealGrade(x.grade), align: 'center' }] });
+    const cols = side => [{ label: 'Date' }, { label: 'Player' }, { label: side === 'in' ? 'From' : 'To' }, { label: 'Type' }, { label: 'Fee', align: 'right' }, { label: 'Fair fee', align: 'right' },
+      { label: 'Minutes since', align: 'right' }, { label: 'Grade', align: 'center', title: side === 'in' ? 'As the buyer' : 'As the seller' }];
+    h += '<div class="grid-2"><div><div class="vneed-unit">In</div>' + ((L.in || []).length ? tableHTML(cols('in'), L.in.slice(0, 15).map(lrow), { compact: true }) : '<div class="muted">None in our data.</div>') + '</div>' +
+      '<div><div class="vneed-unit">Out</div>' + ((L.out || []).length ? tableHTML(cols('out'), L.out.slice(0, 15).map(lrow), { compact: true }) : '<div class="muted">None in our data.</div>') + '</div></div>';
+    if ((L.windows || []).length) h += '<div class="vneed-unit">By window</div>' + tableHTML([{ label: 'Window' }, { label: 'Spent', align: 'right' }, { label: 'Sold', align: 'right' }, { label: 'Net', align: 'right' },
+      { label: 'In / out', align: 'right' }, { label: 'Undisclosed', align: 'right' }], L.windows.map(w => ({ cells: [{ v: w.window, html: esc(w.label) + (w.complete ? '' : ' <span class="muted-inline" title="From players\' transfer histories, still filling in">(partial)</span>') },
+      { v: w.spend || 0, html: money(w.spend), align: 'right' }, { v: w.income || 0, html: money(w.income), align: 'right' }, { v: w.net || 0, html: (w.net < 0 ? '−' : '') + money(Math.abs(w.net || 0)), align: 'right' },
+      { v: w.n_in || 0, html: (w.n_in || 0) + ' / ' + (w.n_out || 0), align: 'right' }, { v: w.undisclosed || 0, html: String(w.undisclosed || 0), align: 'right' }] })), { compact: true });
+  }
+  return h + '</div>';
 }
 
 // ══ the club page: strengths and needs ══════════════════════════════════
@@ -563,17 +789,21 @@ function renderClubNeeds(el, tid) {
       h += '<div class="vneed-unit">' + esc(units[k].label) + '</div>' + (ts.length ? tableHTML([
         { label: 'Player' }, { label: 'Age', align: 'right' }, { label: 'Club' }, { label: 'Min (12m)', align: 'right' }, { label: 'Proj. GAR/90', align: 'right' },
         { label: 'Gain/90', align: 'right', title: 'Over the weakest current regular in the unit' }, { label: 'Pts, rest of season', align: 'right' }, { label: 'FVI', align: 'right', title: 'Fair value index (not euros)' },
+        { label: 'Fair fee', align: 'right', title: 'The fee model for this buyer (EUR)' }, { label: 'Budget', align: 'center', title: 'Against this club\'s summer budget: within the 25-75% range\'s top, a stretch (to the 90th percentile) or beyond' },
         { label: 'Sofascore value', align: 'right', title: 'Reference only, where our stores hold it' }, { label: 'Notes', sortable: false }, { label: '', sortable: false }
       ], ts.map(t => ({ cells: [
         { v: t.name, html: playerA(t.id, t.name) + ' ' + roleBadge(t.role) }, { v: t.age || 0, html: has(t.age) ? t.age : '—', align: 'right' },
         { v: t.club || '', html: t.free ? '<span class="chip warn">no club</span>' : clubA(t.club, t.tid) + (t.league ? ' <span class="muted-inline">' + esc(compName(t.league)) + '</span>' : '') },
         { v: t.min, html: (t.min || 0).toLocaleString('en-US'), align: 'right' }, { v: t.proj, html: g2(t.proj), align: 'right' }, { v: t.gain90, html: '<strong>' + g2(t.gain90) + '</strong>', align: 'right' },
         { v: t.gain_pts_rest || 0, html: has(t.gain_pts_rest) ? signed(t.gain_pts_rest, 1) : '—', align: 'right' }, { v: t.fvi || 0, html: has(t.fvi) ? t.fvi : '—', align: 'right' },
+        { v: t.fee || 0, html: has(t.fee) ? '<span title="' + esc(moneyRange(t.fee_lo, t.fee_hi)) + '">' + money(t.fee) + '</span>' : '—', align: 'right' },
+        { v: t.afford || '', html: t.afford ? '<span class="tafford tafford-' + esc(t.afford) + '">' + esc(t.afford === 'yes' ? 'fits' : t.afford === 'stretch' ? 'stretch' : 'beyond') + '</span>' : '—', align: 'center' },
         { v: t.mv || 0, html: money(t.mv), align: 'right' }, { v: '', html: (t.hints || []).map(x => '<span class="muted-inline">' + esc(x) + '</span>').join('<br>') },
         { v: '', html: '<a href="#/transfer?p=' + esc(t.id) + '&to=' + esc(d.tid) + '">Simulate →</a>' }
       ] })), { compact: true }) : '<div class="muted">No realistic target clears the filters for this unit.</div>');
     });
-    h += '<div class="pad vsmall muted-inline">' + esc(HONEST) + ' <a href="#/value?club=' + esc(d.tid) + '">The squad on the value table →</a> · <a href="#/transfer?to=' + esc(d.tid) + '">Transfer simulator →</a></div></div>';
+    h += budgetLedgerHTML(d);
+    h += '<div class="pad vsmall muted-inline">' + esc(HONEST) + ' <a href="#/value?club=' + esc(d.tid) + '">The squad on the value table →</a> · <a href="#/transfer?to=' + esc(d.tid) + '">Transfer simulator →</a> · <a href="#/transfer?view=feed&q=' + encodeURIComponent(d.name || '') + '">Its transfers →</a></div></div>';
     el.innerHTML = h;
     el.querySelectorAll('table').forEach(t => FH.makeSortable(t));
   }).catch(() => { el.innerHTML = ''; });

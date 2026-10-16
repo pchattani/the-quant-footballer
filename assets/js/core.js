@@ -13,7 +13,8 @@
  *   #/club/<tid>               one page per club or national team (?c= ?e= filters)
  *   #/<slug>/player/<id>       redirects to #/player/<id>?c=<slug>
  *   #/<slug>/team/<team-slug>  redirects to #/club/<tid>?c=<slug> (the old page when no id is known)
- *   #/value, #/transfer        player value and the transfer simulator (value.js)
+ *   #/value, #/transfer        player value, transfers (feed, deals, windows) and the simulator (value.js)
+ *   #/fantasy                  fantasy projections, picks and a suggested squad (fantasy.js)
  *
  * Everything degrades rather than fails: a missing payload disables one tab, a
  * missing competition is listed as unavailable, a missing chart library leaves
@@ -46,15 +47,15 @@ const C = {
 const PALETTE = [C.blue, C.green, C.orange, C.purple, C.red, C.yellow, '#79c0ff', '#d2a8ff'];
 
 // Pages above the competitions, by route segment -> pane / renderer name.
-const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', compare: 'compare', player: 'person', club: 'club', disclaimer: 'disclaimer', lab: 'lab', glossary: 'glossary', methodology: 'methodologysite', value: 'value', transfer: 'transfer' };
-const GLOBAL_TABS = ['home', 'clubs', 'nations', 'leaders', 'lab', 'value', 'transfer', 'compare'];
-const GLOBAL_ROUTE = { clubs: '#/clubs', nations: '#/nations', leaders: '#/leaders', lab: '#/lab', compare: '#/compare', glossary: '#/glossary', methodologysite: '#/methodology', value: '#/value', transfer: '#/transfer' };
+const GLOBAL = { clubs: 'clubs', nations: 'nations', leaders: 'leaders', compare: 'compare', player: 'person', club: 'club', disclaimer: 'disclaimer', lab: 'lab', glossary: 'glossary', methodology: 'methodologysite', value: 'value', transfer: 'transfer', fantasy: 'fantasy' };
+const GLOBAL_TABS = ['home', 'clubs', 'nations', 'leaders', 'lab', 'value', 'transfer', 'fantasy', 'compare'];
+const GLOBAL_ROUTE = { clubs: '#/clubs', nations: '#/nations', leaders: '#/leaders', lab: '#/lab', compare: '#/compare', glossary: '#/glossary', methodologysite: '#/methodology', value: '#/value', transfer: '#/transfer', fantasy: '#/fantasy' };
 // Tabs of a past season (rendered by seasons.js into #tab-past).
 const PAST_TABS = ['p-table', 'p-results', 'p-bracket', 'p-players', 'p-leaders'];
 const FAMILY_LABELS = { cup: 'Continental & world', domestic: 'National cups', super: 'Super cups', international: 'National teams' };
 
 const TAB_LABELS = {
-  home: 'Hub', disclaimer: 'Disclaimer & terms', glossary: 'Glossary', methodologysite: 'Methodology', analytics: 'Analytics', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', lab: 'Player lab', compare: 'Compare', person: 'Player', club: 'Club', value: 'Player value', transfer: 'Transfers',
+  home: 'Hub', disclaimer: 'Disclaimer & terms', glossary: 'Glossary', methodologysite: 'Methodology', analytics: 'Analytics', clubs: 'Clubs across leagues', nations: 'National teams', leaders: 'Global leaders', lab: 'Player lab', compare: 'Compare', person: 'Player', club: 'Club', value: 'Player value', transfer: 'Transfers', fantasy: 'Fantasy',
   'p-table': 'Final table', 'p-results': 'Results', 'p-bracket': 'Knockout', 'p-players': 'Players', 'p-leaders': 'Leaders',
   overview: 'Overview', table: 'Table', fixtures: 'Fixtures & Results', zones: 'Zones',
   bracket: 'Playoffs', anual: 'Tabla Anual', relegation: 'Relegation', probs: 'Probabilities',
