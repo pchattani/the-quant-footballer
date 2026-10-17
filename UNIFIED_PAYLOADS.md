@@ -610,3 +610,108 @@ currency when not EUR), and the store a `failed` map (clubs without a squad page
   budget, horizon, xi, bench, captain, vice, xi_h5, xi_next, formation} (or {solver: "greedy...",
   squad}); `picks` {captain, differentials, value, sell, buy_low, sell_high, buys {G, D, M, F}} (player
   ids); `updated_at`.
+
+## 13. As built (17 October 2026): one season model, coverage, year by year
+
+Why: `docs/football_data_audit.md`. Where this section and the earlier ones differ, this one is what the
+build writes. Everything earlier keeps its keys; the additions below are new keys.
+
+### 13.1 The season key (`era`)
+
+- **Two frames.** A split season runs July to June and reads `"2026/27"`; a calendar season is the year,
+  `"2026"`. Calendar competitions: Brasileirão, MLS, Liga MX (both halves fall in their year), Argentina,
+  Libertadores, Sudamericana, Recopa, CONCACAF Champions Cup, Leagues Cup, Campeones Cup, Club World Cup,
+  Intercontinental Cup, Copa do Brasil, Supercopa do Brasil, Copa Argentina, Supercopa Argentina, US Open Cup,
+  Campeón de Campeones (`CALENDAR_COMPETITIONS` in `analytics/unified.py`). Every other club competition is
+  split. `frame_of(slug)` answers `"split"`, `"calendar"` or `"international"`.
+- **An edition's `era`** comes from the median date of its matches in its competition's frame
+  (`edition_era`), not from Sofascore's `year`: the Johan Cruijff Schaal of 2 August 2026 is 2026/27 (it was
+  2025/26), the Supercopa "2027" of January 2027 is 2026/27. An archive-only edition (no dates) takes its label,
+  a four-digit year in a split competition moved by the offset its dated editions show (the Supercopa: one
+  year back), by default opening the season that starts that year (a summer super cup). International
+  editions get the calendar year of their median date (the competition's own season picker).
+- **International football has no season of its own.** A player's international appearances count in his own
+  frame by date (`app_era`), the split year turning on 1 August so a June or July tournament closes the season
+  it ends: Haaland's 2026 World Cup is in his 2025/26, a Flamengo player's in his 2026. The two world club
+  competitions (Club World Cup, Intercontinental Cup) are treated the same way (`NEUTRAL_COMPETITIONS`), for
+  players and on club pages (the club's frame is its home league's).
+- **A player's frame** (`person_frame`) is his latest club league's (else latest club competition's, else
+  his archive career's latest season label), calendar by default. National teams' pages use the calendar year.
+
+### 13.2 `people/<pid>.json`
+
+- `frame`: `"split"` or `"calendar"`.
+- `seasons[]` is one row per (competition, edition, team, **season**): an international edition that spans two
+  of a player's seasons (World Cup qualifying, the Nations League) is two rows with the same `sid`.
+- `seasons[].coverage`: `"full"` (every finished match of that team in that edition has line-ups),
+  `"partial"` (some do not: the row is a lower bound), `"none"`, or `"totals"` (Sofascore's season totals
+  replaced a partial line-up record: see below). When not full: `cov` [matches with line-ups, the team's
+  finished matches] and `gap`: `"backfill"` (the hourly fetch has the missing matches queued),
+  `"unavailable"` (Sofascore has no line-ups for them: `detail_missing` final, 13.8) or `"outside"` (ties the
+  fetch never asks for: a national cup's or a qualifying round's without a followed club).
+- **Season totals for partial rows.** When the archive holds Sofascore's season statistics for the same
+  edition (matched on the season id, `sid`), the row is the only one for that edition, its coverage is partial
+  and the totals have more minutes, the row takes the totals (`apps`, `starts`, `min`, `g`, `a`, `xg`, `xa`,
+  `rt`) with `coverage: "totals"` and `lineups` {apps, min} (what the line-ups alone gave). 1,228 rows on 17
+  October 2026 (the profiled players: ~1,250 careers).
+- `archive[]` rows now carry `sid` and `coverage: "totals"`; they are matched to store rows on `sid` (was the
+  label) and never repeat one.
+- `years[]` (new): year by year, newest first: {`era`, `rows` (season x competition rows in it), `apps`,
+  `starts`, `min`, `g`, `a`, `xg`, `xa`, `rt` (minutes-weighted), `intl` {apps, min, g, a} (the international
+  part; the club part is the rest), `teams` [club tids by minutes], `coverage` ("partial" when any row in it
+  is a lower bound)}. Built from `seasons` + `archive`, so the competitions always add up to the season.
+  Zero `xg`, `xa`, `starts` and empty `intl`, `teams` are left out.
+- `mv` (Sofascore's market value, EUR unless `mvc`), `until` (contract end, ISO date), `foot`: the squad list
+  that counts for him first (`squads/store.json`), then the archive's profile.
+
+### 13.3 `people_index.json`
+
+`fields` gain `season` and `mv` at the end. `min` is now the minutes of the player's **current season in his
+own frame, every competition** (the same number as his `years` row for that season: a European's 2026/27, a
+Brazilian's 2026); it was each competition's current edition summed, which mixed 2026/27 with 2026.
+
+### 13.4 `clubs/<tid>.json`
+
+- `seasons[]` rows of live and store editions with finished matches carry `coverage` (player data for the
+  club's matches), and `cov`, `gap` when not full. World club competitions fall in the club's frame by date.
+- `years[]` (new): {`era`, `comps`, `played`, `w`, `d`, `l`, `gf`, `ga`, `record` ("partial" when an archive
+  table without W-D-L is in the season), `won` [cups won]} from the `seasons` rows (a league row is its league
+  phase, as before).
+- `squad.players[]` gain `mv` (`mvc`) and `until`.
+
+### 13.5 `<slug>/seasons.json`, `s/<sid>/season.json`
+
+- Store and live rows of `seasons.json` carry `coverage` (the edition's finished matches with line-ups) and
+  `unavailable` (how many Sofascore has none for) when any.
+- `season.json` carries `coverage`; `detail_matches` is the matches with line-ups; `fixtures[].detail` now
+  means "has a match page" (13.6).
+
+### 13.6 Match pages
+
+`<slug>/matches/<id>.json` is written for every match of the live edition and for earlier matches from the
+last 365 days (`has_match_page` in `build_site_all.py`, `MATCH_PAGE_DAYS`). The previous season is now fetched
+in full (13.8) for the totals; a page for each of its ~4,000 older matches would add ~75 MB, so they feed the
+people, clubs and season payloads only. `clubs/<tid>.json` `matches[].detail` and `season.json`
+`fixtures[].detail` follow the same rule; the person page links a match only under it.
+
+### 13.7 Leaderboards
+
+- `players_live.json` `minutes_floor` (and `qualified`, the percentiles) is 30% of the minutes the
+  competition's season has offered so far, at least 90 (`FLOOR_SHARE`, `FLOOR_MIN`; was 35% capped at 270):
+  docs/MODELS.md 11.1.
+- `players_global.json`: one window, the edition of the season under way in each competition's frame
+  (`in_current_window`; an international competition while it has played in the last 60 days); every row is
+  over its own competition's floor, so the pool floor (`minutes_floor`) is 90. New keys: `floor_share`,
+  `floor_rule`, `left_out` (competitions whose built edition is not this season's), and `season` on each row.
+- Unchanged: `value/players.json` (last 365 days of club football, its own 450/900-minute floors) and
+  `players_lab_365.json` / `players_lab_ytd.json` (rolling windows of equal length for every player).
+
+### 13.8 Stores: `detail_missing`
+
+A competition store may hold `detail_missing` {gid: {`at`, `n`, `why`: "no-lineups" | "no-stats", `final`}},
+written by `scripts/fetch_sofascore_leagues.py`: a match Sofascore answered without line-ups is asked again
+after 1, then 7 days; on the third such answer it is `final` and never asked again. The fetch now queues
+every finished match of every season the store holds (the previous season in full, not the last 365 days),
+in tiers: the current season's new matches, its old-format ones, then the previous seasons of the followed
+leagues, of the continental cups, of the rest; a backfilled match is three calls (line-ups, team statistics,
+incidents; no shot map or momentum).

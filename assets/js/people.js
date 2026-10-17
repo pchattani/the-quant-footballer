@@ -56,6 +56,38 @@ function eraOfSeason(s) {
   m = /(19|20)\d\d/.exec(t);
   return m ? m[0] : t;
 }
+/* The season key of a date in a player's frame: a split season turns on 1 August for international
+   football (a June or July tournament closes the season), a calendar season is the year. */
+const NEUTRAL = { 'club-world-cup': 1, 'intercontinental-cup': 1 };
+function frameEra(frame, date) {
+  const d = String(date || '');
+  if (d.length < 7) return null;
+  const y = Number(d.slice(0, 4)), m = Number(d.slice(5, 7));
+  if (frame !== 'split') return String(y);
+  const s = m >= 8 ? y : y - 1;
+  return s + '/' + String((s + 1) % 100).padStart(2, '0');
+}
+/* A match has its own page in the live edition or within the last year (build_site_all.has_match_page);
+   older appearances (a past season backfilled for its totals) are in the log without a link. */
+const PAGE_CUTOFF = new Date(Date.now() - 365 * 86400000).toISOString().slice(0, 10);
+function hasMatchPage(r) {
+  const c = compOf(r.comp);
+  return (c && String(currentSeason(c).sid) === String(r.sid)) || String(r.date || '') >= PAGE_CUTOFF;
+}
+function moneyShort(v, cur) {
+  const n = Number(v) || 0, sym = !cur || cur === 'EUR' ? '€' : cur + ' ';
+  return n >= 1e6 ? sym + (Math.round(n / 1e5) / 10) + 'm' : n >= 1e3 ? sym + Math.round(n / 1e3) + 'k' : sym + n;
+}
+/* A season x competition row's data coverage, for the Source column. */
+function coverageChip(r) {
+  if (r.coverage === 'partial' || r.coverage === 'none') {
+    const c = r.cov || [];
+    const why = r.gap === 'backfill' ? 'the missing matches are being backfilled' : r.gap === 'unavailable' ? 'Sofascore has no line-ups for the missing matches' : 'the missing ties are outside what the site fetches';
+    return ' <span class="chip warn" title="Line-ups for ' + (c[0] || 0) + ' of the team\'s ' + (c[1] || 0) + ' matches: ' + why + '. The figures are a lower bound.">partial' + (c.length ? ' ' + c[0] + '/' + c[1] : '') + '</span>';
+  }
+  if (r.coverage === 'totals' && r.source !== 'archive') return ' <span class="chip" title="Sofascore\'s season totals: our line-ups cover only part of this season' + (r.lineups ? ' (' + r.lineups.min + ' minutes in them)' : '') + '">season totals</span>';
+  return '';
+}
 function seasonHref(slug, sid) {
   const c = compOf(slug);
   if (!c) return null;
@@ -167,7 +199,10 @@ function personRows(doc) {
     f.forEach((k, i) => { o[k] = r[i]; });
     o.scope = ((names[o.comp] || {}).scope) || scopeOf(o.comp);
     o.kind = ((names[o.comp] || {}).kind) || kindOf(o.comp);
-    o.era = eraBy[o.comp + '|' + o.sid] || eraOfSeason(o.date ? (Number(o.date.slice(5, 7)) >= 7 ? o.date.slice(0, 4) + '/' + (Number(o.date.slice(0, 4)) + 1) : o.date.slice(0, 4)) : '');
+    // International football (and the world club cups) count in the player's own frame by date, as the
+    // build does (UNIFIED_PAYLOADS.md 13): a club edition's appearances in that edition's season.
+    o.era = ((o.scope === 'international' || NEUTRAL[o.comp]) && doc.frame ? frameEra(doc.frame, o.date) : null) ||
+      eraBy[o.comp + '|' + o.sid] || eraOfSeason(o.date ? (Number(o.date.slice(5, 7)) >= 7 ? o.date.slice(0, 4) + '/' + (Number(o.date.slice(0, 4)) + 1) : o.date.slice(0, 4)) : '');
     return o;
   });
   return { seasons: seasons, archive: archive, apps: apps };
@@ -197,6 +232,8 @@ function drawPerson(pane, doc, token) {
   if (doc.nat) chips.push('<span class="chip">' + esc(doc.nat) + '</span>');
   if (doc.shirt) chips.push('<span class="chip">#' + esc(doc.shirt) + '</span>');
   if (doc.foot) chips.push('<span class="chip">' + esc(doc.foot) + ' foot</span>');
+  if (doc.mv) chips.push('<span class="chip" title="Sofascore\'s market value, reference only">' + esc(moneyShort(doc.mv, doc.mvc)) + '</span>');
+  if (doc.until) chips.push('<span class="chip" title="Contract end, Sofascore">contract to ' + esc(String(doc.until).slice(0, 7)) + '</span>');
   if (cc && cc.as_of) chips.push('<span class="chip" title="Squad source: ' + esc(cc.source || '') + '">club as of ' + esc(fmtDate(cc.as_of, true)) + '</span>');
   if (!doc.unified) chips.push('<span class="chip warn" title="data/people/' + esc(doc.id) + '.json is not built yet">this season and the archive only</span>');
 
@@ -244,9 +281,11 @@ function drawPersonBody(doc, R, q, token) {
   if (apps.length >= 3 && !dossierOn) html += '<div class="grid-2"><div class="card"><div class="card-header">Match by match <span class="card-sub">Rating per appearance (dots, coloured by kind) and the five-match rolling mean.</span></div><div id="pn-rt" style="height:300px"></div></div>' +
     '<div class="card"><div class="card-header">Goals against xG <span class="card-sub">Cumulative, oldest to newest, across the appearances in the filter.</span></div><div id="pn-xg" style="height:300px"></div></div></div>';
 
+  // Year by year: every competition in the filter summed per season (the competitions below add up to it).
+  html += '<div class="card"><div class="card-header">Season by season <span class="card-sub">All competitions in the filter, one row per season' + (doc.frame === 'calendar' ? ' (calendar years, as his club football runs)' : ' (July to June; international matches fall in the season they are played in)') + '.</span></div><div id="pn-years"></div></div>';
   // Career by season.
   const crow = both.slice().sort((x, y) => eraKey(y.era) - eraKey(x.era) || (KIND_ORDER[x.kind] - KIND_ORDER[y.kind]) || (y.min || 0) - (x.min || 0));
-  html += '<div class="card"><div class="card-header">Career by season <span class="card-sub">One row per competition, season and team. Store rows carry xG; archive rows are Sofascore\'s season totals.</span></div><div id="pn-career"></div></div>';
+  html += '<div class="card"><div class="card-header">Career by season <span class="card-sub">One row per competition, season and team. Store rows carry xG; archive rows are Sofascore\'s season totals; "partial" rows are lower bounds.</span></div><div id="pn-career"></div></div>';
   html += '<div class="card"><div class="card-header">By competition <span class="card-sub">Every season in the filter, summed per competition.</span></div><div id="pn-split"></div></div>';
   html += '<div id="pn-dossier"></div>';
   if (!dossierOn) html += '<div class="card"><div class="card-header">Match log <span class="card-sub" id="pn-log-sub"></span></div><div id="pn-log"></div></div>';
@@ -272,10 +311,34 @@ function drawPersonBody(doc, R, q, token) {
       { v: has(r.xg) ? r.xg : -1, html: has(r.xg) ? num(r.xg, 2) : '—', align: 'right' }, { v: has(r.xa) ? r.xa : -1, html: has(r.xa) ? num(r.xa, 2) : '—', align: 'right' },
       { v: r.min ? ((r.g || 0) + (r.a || 0)) * 90 / r.min : 0, html: r.min ? num(((r.g || 0) + (r.a || 0)) * 90 / r.min, 2) : '—', align: 'right' },
       { v: r.rt || 0, html: r.rt ? num(r.rt, 2) : '—', align: 'right' },
-      { v: r.source, html: '<span class="chip' + (r.source === 'archive' ? '' : ' st-live') + '">' + esc(r.source === 'live' ? 'current edition' : r.source || '') + '</span>', align: 'center' }
+      { v: r.source, html: '<span class="chip' + (r.source === 'archive' ? '' : ' st-live') + '">' + esc(r.source === 'live' ? 'current edition' : r.source || '') + '</span>' + coverageChip(r), align: 'center' }
     ] };
   }), { sticky: true }) : '<div class="muted">No appearance matches the filter.</div>');
   sortableIn('pn-career');
+
+  const years = {};
+  both.forEach(r => {
+    if (!r.era) return;
+    const y = years[r.era] || (years[r.era] = { era: r.era, rows: [], club: 0, intl: 0, partial: false });
+    y.rows.push(r);
+    if (r.scope === 'international') y.intl += r.min || 0; else y.club += r.min || 0;
+    if (r.coverage === 'partial' || r.coverage === 'none') y.partial = true;
+  });
+  const yrows = Object.keys(years).map(k => years[k]).sort((x, y) => eraKey(y.era) - eraKey(x.era));
+  setHTML('pn-years', yrows.length ? tableHTML([
+    { label: 'Season' }, { label: 'Competitions', align: 'right' }, { label: 'Apps', align: 'right' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' },
+    { label: 'G+A/90', align: 'right' }, { label: 'Rating', align: 'right' }, { label: 'Club min', align: 'right' }, { label: 'Intl min', align: 'right' }, { label: 'Data', align: 'center' }
+  ], yrows.map(y => {
+    const m = sum(y.rows, 'min'), gg = sum(y.rows, 'g'), aa = sum(y.rows, 'a'), rr = wavg(y.rows, 'rt', 'min');
+    return { cells: [
+      { v: eraKey(y.era), html: '<strong>' + esc(y.era) + '</strong>' }, { v: y.rows.length, align: 'right' }, { v: sum(y.rows, 'apps'), align: 'right' },
+      { v: m, align: 'right' }, { v: gg, align: 'right' }, { v: aa, align: 'right' },
+      { v: m ? (gg + aa) * 90 / m : 0, html: m ? num((gg + aa) * 90 / m, 2) : '—', align: 'right' },
+      { v: rr || 0, html: rr ? num(rr, 2) : '—', align: 'right' }, { v: y.club, align: 'right' }, { v: y.intl, html: y.intl ? String(y.intl) : '—', align: 'right' },
+      { v: y.partial ? 0 : 1, html: y.partial ? '<span class="chip warn" title="At least one competition this season is a lower bound (line-ups missing)">partial</span>' : '<span class="chip">complete</span>', align: 'center' }
+    ] };
+  }), { compact: true }) : '<div class="muted">No season in the filter.</div>');
+  sortableIn('pn-years');
 
   const byComp = {};
   both.forEach(r => { const k = r.comp || r.cname; (byComp[k] = byComp[k] || { comp: r.comp, cname: r.cname, kind: r.kind, rows: [] }).rows.push(r); });
@@ -311,7 +374,7 @@ function drawPersonBody(doc, R, q, token) {
     const team = ((doc.teams || {})[String(r.tid)] || {}).name || '';
     const res = String(r.res || '');
     const wl = res.charAt(0);
-    return { _href: r.gid ? FH.matchHref(r.gid, r.comp) : null, cells: [
+    return { _href: r.gid && hasMatchPage(r) ? FH.matchHref(r.gid, r.comp) : null, cells: [
       { v: r.date || '', html: esc(fmtDate(r.date, true)) }, { v: compShort(r.comp, names), html: esc(compShort(r.comp, names)) },
       { v: team, html: clubA(team, r.tid, r.comp) }, { v: r.opp || '', html: clubA(r.opp, r.opp_tid, r.comp) }, { v: r.home ? 'H' : 'A', align: 'center' },
       { v: res, html: '<span class="res-' + esc(wl) + '">' + esc(res) + '</span>', align: 'center' },
@@ -490,6 +553,7 @@ function drawClubBody(doc, seasons, matchesAll, people, q, token) {
 
   // Strengths and needs (value.js): league clubs only; a club without a value file shows nothing.
   html += '<div id="cl-needs"></div><div id="cl-dossier"></div>';
+  html += '<div class="card"><div class="card-header">Year by year <span class="card-sub">Every competition in the filter summed per season: the rows below add up to these.</span></div><div id="cl-years"></div></div>';
   html += '<div class="card"><div class="card-header">Season by season <span class="card-sub">Finishing position, record and the model\'s strength where it was fitted.</span></div><div id="cl-seasons"></div></div>' +
     '<div class="card"><div class="card-header">' + (doc.national ? 'Latest call-up' : 'Current squad') + ' <span class="card-sub" id="cl-squad-sub"></span></div><div id="cl-squad"></div></div>';
   html += '<div class="grid-2"><div class="card"><div class="card-header">Points per game by season <span class="card-sub">Matches in the stores, by competition.</span></div><div id="cl-ppg" style="height:300px"></div></div>' +
@@ -546,6 +610,30 @@ function drawClubBody(doc, seasons, matchesAll, people, q, token) {
   sortableIn('cl-seasons');
   wireRowLinks('cl-seasons');
 
+  // Year by year from the same rows (a row without a record, an archive table, leaves its season "partial").
+  const yb = {};
+  ss.forEach(s => {
+    if (!s.era) return;
+    const y = yb[s.era] || (yb[s.era] = { era: s.era, comps: 0, played: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, partial: false, won: [] });
+    y.comps += 1;
+    if (!has(s.w) || (!s.played && s.source !== 'live')) { if (s.played) y.partial = true; return; }
+    ['played', 'w', 'd', 'l', 'gf', 'ga'].forEach(k => { y[k] += Number(s[k]) || 0; });
+    if (s.stage === 'winner') y.won.push(compShort(s.comp));
+    if (s.coverage === 'partial' || s.coverage === 'none') y.lineups = true;
+  });
+  const ylist = Object.keys(yb).map(k => yb[k]).sort((x, y) => eraKey(y.era) - eraKey(x.era));
+  setHTML('cl-years', ylist.length ? tableHTML([
+    { label: 'Season' }, { label: 'Competitions', align: 'right' }, { label: 'P', align: 'right' }, { label: 'W-D-L', align: 'right', sortable: false },
+    { label: 'GF', align: 'right' }, { label: 'GA', align: 'right' }, { label: 'PPG', align: 'right' }, { label: 'Won' }, { label: 'Data', align: 'center' }
+  ], ylist.map(y => ({ cells: [
+    { v: eraKey(y.era), html: '<strong>' + esc(y.era) + '</strong>' }, { v: y.comps, align: 'right' }, { v: y.played, align: 'right' },
+    { v: '', html: y.played ? y.w + '-' + y.d + '-' + y.l : '—', align: 'right' }, { v: y.gf, align: 'right' }, { v: y.ga, align: 'right' },
+    { v: y.played ? (3 * y.w + y.d) / y.played : 0, html: y.played ? num((3 * y.w + y.d) / y.played, 2) : '—', align: 'right' },
+    { v: y.won.join(', '), html: esc(y.won.join(', ')) },
+    { v: y.partial ? 0 : 1, html: y.partial ? '<span class="chip warn" title="An archive table without a record is not in the sums">partial</span>' : y.lineups ? '<span class="chip" title="Results complete; some matches lack player line-ups">results</span>' : '<span class="chip">complete</span>', align: 'center' }
+  ] })), { compact: true }) : '<div class="muted">No season matches the filter.</div>');
+  sortableIn('cl-years');
+
   // Squad: the current roster, never filtered by season (it is today's squad).
   const sq = (doc.squad || {}).players || [];
   const src = (doc.squad || {}).source;
@@ -561,14 +649,17 @@ function drawClubBody(doc, seasons, matchesAll, people, q, token) {
     if (!g.length) return '';
     return '<div class="squad-pos-head">' + esc(POS_GROUP[pos] || 'Position not recorded') + ' · ' + g.length + '</div>' + tableHTML([
       { label: '#', align: 'right' }, { label: 'Player' }, { label: 'Age', align: 'right' }, { label: 'Nat', align: 'center' }, { label: doc.national ? 'Club' : 'International' },
-      { label: 'Apps', align: 'right' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'Rating', align: 'right' }
+      { label: 'Apps', align: 'right' }, { label: 'Min', align: 'right' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'Rating', align: 'right' },
+      { label: 'Value', align: 'right', title: 'Sofascore market value, reference only' }, { label: 'Contract', align: 'right', title: 'Contract end, Sofascore' }
     ], g.map(p => ({ cells: [
       { v: Number(p.shirt) || 999, html: p.shirt && !doc.national ? esc(p.shirt) : '', align: 'right' },
       { v: p.name, html: '<a class="player-link" href="' + esc(personHref(p.id)) + '">' + esc(p.name) + '</a> ' + posBadge(p.pos) +
         (src !== 'roster' && !doc.national && !p.apps ? ' <span class="muted-inline" title="Listed from his latest club appearance; no appearance for the club this season">not played this season</span>' : '') },
       { v: p.age || 0, html: p.age || '—', align: 'right' }, { v: p.nat || '', html: esc(p.nat || ''), align: 'center' }, { v: '', html: flag(p) },
       { v: p.apps || 0, align: 'right' }, { v: p.min || 0, align: 'right' }, { v: p.g || 0, align: 'right' }, { v: p.a || 0, align: 'right' },
-      { v: p.rt || 0, html: has(p.rt) && p.rt ? num(p.rt, 2) : '—', align: 'right' }
+      { v: p.rt || 0, html: has(p.rt) && p.rt ? num(p.rt, 2) : '—', align: 'right' },
+      { v: p.mv || 0, html: p.mv ? esc(moneyShort(p.mv, p.mvc)) : '—', align: 'right' },
+      { v: p.until || '', html: p.until ? esc(String(p.until).slice(0, 7)) : '—', align: 'right' }
     ] })), { compact: true });
   }).join('') : '<div class="muted">No squad on record yet.</div>');
   document.querySelectorAll('#cl-squad table').forEach(t => FH.makeSortable(t));

@@ -216,7 +216,10 @@ function renderLeaders() {
     const metrics = g.metrics || [];
     const adjusted = g.adjusted_keys || [];
     if (!all.length) { setHTML('leaders-table', '<div class="muted">No players yet.</div>'); return; }
-    setHTML('leaders-sub', all.length + ' qualified players across ' + Object.keys(g.leagues || {}).length + ' leagues and the cups · percentiles against the pool\'s position group over ' + g.minutes_floor + ' minutes');
+    // Each row is over its own competition's floor (a share of the minutes its season has offered), so a
+    // Brazilian thirty rounds in and a European seven rounds in are each ranked on a like share of their seasons.
+    setHTML('leaders-sub', all.length + ' qualified players across ' + Object.keys(g.leagues || {}).length + ' leagues and the cups, this season · ' +
+      (g.floor_share ? 'each over ' + Math.round(g.floor_share * 100) + '% of the minutes his competition has played so far' : 'percentiles against the pool\'s position group over ' + g.minutes_floor + ' minutes'));
     setHTML('leaders-note', '<p>' + esc(g.note || '') + '</p>');
     const metricSel = document.getElementById('leaders-metric'), posSel = document.getElementById('leaders-pos'), compSel = document.getElementById('leaders-comp'), minMin = document.getElementById('leaders-min');
     const comps = Array.from(new Set(all.map(p => p.comp)));
@@ -244,7 +247,7 @@ function renderLeaders() {
         { label: 'Pctl', align: 'center', title: 'Percentile in the global position pool' }, { label: 'G', align: 'right' }, { label: 'A', align: 'right' }, { label: 'Rating', align: 'right' }
       ], rows.map((p, i) => { const pk = pctKey(p); return { cells: [
         { v: i + 1, cls: 'pos-cell' }, { v: p.name, html: playerLink(p.player_id, p.name, p.comp) },
-        { v: p.team, html: crest(p.team, p.crest) + esc(p.team) }, { v: p.comp_name, html: esc(p.comp_name) },
+        { v: p.team, html: crest(p.team, p.crest) + esc(p.team) }, { v: p.comp_name, html: esc(p.comp_name) + (p.season ? ' <span class="muted-inline">' + esc(String(p.season).replace(/^.*?(\d{2}\/\d{2}|(19|20)\d{2})$/, '$1')) + '</span>' : '') },
         { v: p.position || '', html: p.position ? '<span class="pos-badge pos-' + esc(p.position) + '">' + esc(p.position) + '</span>' : '', align: 'center' },
         { v: p.age || 0, html: p.age || '—', align: 'right' }, { v: p.minutes, align: 'right' },
         { v: p[key], html: '<strong>' + fmtMetric(p[key], metric.fmt) + '</strong>', align: 'right' },
