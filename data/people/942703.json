@@ -1,1 +1,1 @@
-{"id":"942703","name":"Carlos Herrera","short_name":"C. Herrera","pos":"M","nat":"CHL","dob":"2000-04-17","height":174,"shirt":"21","age":26,"current_club":{"tid":3164,"source":"roster","as_of":"2026-10-20","name":"Huachipato"},"mv":190000,"until":"2027-12-31","frame":"calendar","comps":{},"teams":{},"apps_fields":["date","gid","comp","sid","tid","opp_tid","opp","home","res","start","min","g","a","xg","xa","rt","sh","kp","yc","rc"],"apps":[],"seasons":[],"years":[]}
+{"id":"942703","merged_into":"942701","name":"Carlos Herrera"}
