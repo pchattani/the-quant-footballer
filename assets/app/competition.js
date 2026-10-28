@@ -473,6 +473,7 @@ LIVE.overview = function (el, body, c, d0, q, seasons) {
         FB.card('Leaders', 'This season, every player in the competition.', '<div id="co-leaders" class="fb-co-minis"></div>', { span: 5, foot: '<span></span><a href="' + esc(FB.href.comp(c.slug, 'players')) + '">All players →</a>' })
       ) +
       '<div id="co-hist-wrap"></div></section>' +
+      '<div id="co-perf"></div>' +
       '<section class="qk-section fb-co-sec">' + QK.sectionHead({ kicker: 'Behind the numbers', title: 'How we model it', sub: 'The settings, the record and the format behind this competition’s pages, and every season we have.' }) +
       FB.grid(
         FB.card('How this competition is modelled', esc(c.name) + ': the model settings, calibration and format behind its pages.', modelCard(c, d), { span: 7, foot: '<span></span><a href="#/model/methodology?c=' + esc(FB.enc(c.slug)) + '">Full methodology →</a>' }) +
@@ -497,6 +498,7 @@ LIVE.overview = function (el, body, c, d0, q, seasons) {
     };
     var minis = [mini('goals', 'Goals', 'int'), mini('assists', 'Assists', 'int'), mini('xg', 'Expected goals', '1'), mini('rating', 'Rating', '2')].filter(Boolean).join('');
     $(el, 'co-leaders').innerHTML = minis || cardMsg('No player data yet.');
+    performers($(el, 'co-perf'), c);
     // run-by-run
     var snaps = ((d.history || {}).snapshots || []).filter(function (s) { return s.title; });
     if (snaps.length >= 2 && !last) {
@@ -505,6 +507,26 @@ LIVE.overview = function (el, body, c, d0, q, seasons) {
     }
   });
 };
+
+/* Top and bottom performers (QKL.leaders): all players on our value model, then each position group on its spec
+   headline set, then the clubs (data/<slug>/performers.json, oddsmarkets/football/analytics/performers.py: qualified
+   players only, the spec's 450 minutes, 900 for goalkeepers, and the competition's floor). The section is left out
+   while nobody qualifies (a cup early in its run). */
+function performers(host, c) {
+  if (!host || !window.QKL || !QKL.leaders || !FB.hasFile(c.slug, 'players_live')) return;
+  Promise.all([FB.load(c.slug + '/performers.json'), FB.clubsIndex()]).then(function (arr) {
+    var pf = arr[0];
+    if (!FB.alive(host) || !pf || !(pf.views || []).length) return;
+    QKL.leaders(host, { data: pf, title: 'Who leads the league, and who is struggling',
+      sub: 'The top five and the bottom five on each key number: every player on our value model first, then each position on the numbers that matter for it, and the clubs. Qualified players only; each name opens the player page.',
+      team: function (k) {
+        if (!/^\d+$/.test(String(k))) return { name: k, abbr: FB.clubCode(k) };
+        var nm = FB.clubName(k);
+        return { name: nm, abbr: nm ? FB.clubCode(nm) : '', colour: FB.clubColour(k), logo: FB.crestUrl(k), href: FB.href.club(k, { c: c.slug }) };
+      },
+      href: function (id) { return FB.href.player(id, { c: c.slug }); } });
+  });
+}
 
 /* Our chances after each model run, 538-style (QKC.forecast): one line per club labelled at its end, no legend. */
 function historyChart(box, snaps, key, n, yName) {
@@ -722,19 +744,37 @@ function ligaTable(el, body, c, d0, q) {
     upcomingTable($(el, 'co-up'), ctx, up);
   });
 }
+/* Argentina's places as they stand (anual.json rows[].berth_now, build_site_liga.berths_now): the champions and the
+   cup winner first, the rest of the six Libertadores places down the table (a title still to decide holds one open),
+   six Sudamericana places after, and the two relegations (last place, the worst promedio). */
+var LIGA_BERTH = {
+  lib_auto: ['var(--c-3)', 'Libertadores (a champion)'], lib: ['var(--c-3)', 'Libertadores'],
+  lib_open: ['var(--c-4)', 'Libertadores or Sudamericana (an open title)'], sud: ['var(--c-1)', 'Sudamericana'],
+  sud_open: ['var(--c-5)', 'Sudamericana if an open title goes to a club already in'],
+  down_anual: ['var(--c-8)', 'Down: last in the table'], down_promedio: ['var(--c-2)', 'Down: worst promedio']
+};
 function ligaAnual(el, b, ctx, a) {
   if (!a) { b.innerHTML = FB.empty('No Tabla Anual yet'); return; }
-  var lib = a.berths.libertadores, sud = a.berths.sudamericana;
-  b.innerHTML = FB.card('Tabla Anual', lib + ' Libertadores berths, ' + sud + ' Sudamericana, and last place goes down.', '<p class="fb-cap">' + esc(a.berths.note_en || a.berths.note || '') + '</p><div id="co-an"></div>') +
+  var lib = a.berths.libertadores, sud = a.berths.sudamericana, nowB = a.berths.now || {};
+  var autos = (nowB.autos || []).map(function (x) { return esc(x.team) + ' (' + esc(x.why) + ')'; });
+  var legend = '<div class="qk-legend fb-co-legend">' + ['lib', 'lib_open', 'sud', 'sud_open', 'down_anual', 'down_promedio'].filter(function (k) { return a.rows.some(function (r) { return r.berth_now === k || (k === 'lib' && r.berth_now === 'lib_auto'); }); })
+    .map(function (k) { return '<span><i style="--k:' + LIGA_BERTH[k][0] + '"></i>' + esc(LIGA_BERTH[k][1]) + '</span>'; }).join('') + '</div>';
+  var sub = 'If the season ended today: ' + lib + ' Libertadores places' + (autos.length ? ', ' + autos.join(', ') + ' already in' : '') +
+    (nowB.open_titles ? ', ' + nowB.open_titles + ' held open for titles still to decide' : '') + '; ' + sud + ' Sudamericana; two clubs down.';
+  b.innerHTML = FB.card('Tabla Anual', sub, '<p class="fb-cap">' + esc(a.berths.note_en || a.berths.note || '') + '</p>' + legend + '<div id="co-an"></div>') +
     '<div class="fb-mt">' + FB.card('Where they will finish in the Tabla Anual', 'Our chance of each final position.', '<div id="co-anh"></div>') + '</div>';
   var n = a.rows.length;
   var col = function (pos) { return pos <= lib ? 'var(--c-3)' : pos <= lib + sud ? 'var(--c-1)' : pos === n ? 'var(--c-8)' : null; };
+  var colOf = function (r) { var k = r.berth_now; return k && LIGA_BERTH[k] ? LIGA_BERTH[k][0] : (k === undefined ? col(r.pos) : null); };
   FB.table($(el, 'co-an'), [
-    { key: 'pos', label: '#', num: true, fmt: function (v) { var cc = col(v); return '<span class="fb-co-pos"' + (cc ? ' style="--b:' + cc + '"' : '') + '>' + v + '</span>'; } },
+    { key: 'pos', label: '#', num: true, fmt: function (v, r) { var cc = colOf(r); return '<span class="fb-co-pos"' + (cc ? ' style="--b:' + cc + '"' : '') + (r.berth_now && LIGA_BERTH[r.berth_now] ? ' title="' + esc(LIGA_BERTH[r.berth_now][1]) + '"' : '') + '>' + v + '</span>'; } },
     { key: 'team', label: 'Club', sticky: true, fmt: function (v) { return ctx.club(v); } },
-    { key: 'played', label: 'P', num: true }, { key: 'pts_now', label: 'Pts', num: true, fmt: function (v) { return '<b>' + v + '</b>'; } },
+    { key: 'played', label: 'P', num: true },
+    { key: 'w', label: 'W', num: true }, { key: 'd', label: 'D', num: true }, { key: 'l', label: 'L', num: true },
+    { key: 'gd', label: 'GD', num: true, fmt: function (v) { return isNum(v) ? signed(v, 0) : '—'; } },
+    { key: 'pts_now', label: 'Pts', num: true, fmt: function (v) { return '<b>' + v + '</b>'; } },
     { key: 'exp_pts', label: 'Proj.', num: true, fmt: function (v) { return num(v, 1); } },
-    { key: 'p_champion', label: 'Champion', num: true, fmt: function (v) { return heatPct(v, 'var(--signal)'); } },
+    { key: 'p_champion', label: 'Top', num: true, tip: 'Our chance of finishing top of the Tabla Anual', fmt: function (v) { return heatPct(v, 'var(--signal)'); } },
     { key: 'p_libertadores', label: 'Libertadores', num: true, fmt: function (v) { return heatPct(v, 'var(--c-3)'); } },
     { key: 'p_sudamericana', label: 'Sudamericana', num: true, fmt: function (v) { return heatPct(v, 'var(--c-1)'); } }
   ], a.rows, { caption: 'Tabla Anual' });
